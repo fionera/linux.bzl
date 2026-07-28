@@ -4,7 +4,13 @@ load(":architectures.bzl", "linux_architectures")
 load(":kernel_bundle.bzl", "linux_kernel_bundle", "linux_kernel_exports")
 load(":linux_modules.bzl", "linux_module_sdk")
 load(":linux_objects.bzl", "linux_compressed_image", "linux_resolved_config", "linux_vmlinux")
-load(":linux_rust.bzl", "linux_disabled_rust_kernel_sdk", "linux_rust_kernel_sdk")
+load(
+    ":linux_rust.bzl",
+    "linux_disabled_rust_kernel_sdk",
+    "linux_rust_kernel_sdk",
+    "linux_rust_toolchain_capture",
+    "linux_rust_toolchain_probe",
+)
 
 visibility("public")
 
@@ -28,6 +34,7 @@ def _define_config(
         config,
         config_mode,
         arch,
+        rust_toolchain_probe,
         source_repo,
         version,
         visibility):
@@ -37,22 +44,25 @@ def _define_config(
         "SRCARCH": arch.srcarch,
         "UTS_MACHINE": arch.uts_machine,
     })
-    linux_resolved_config(
-        name = name,
-        config = config,
-        config_name = name,
-        config_mode = config_mode,
-        env = {
+    kwargs = {
+        "name": name,
+        "config": config,
+        "config_name": name,
+        "config_mode": config_mode,
+        "env": {
             "ARCH": arch.arch,
             "SRCARCH": arch.srcarch,
         },
-        root = _source_label(source_repo, "Kconfig"),
-        source_root = _source_label(source_repo, "Kconfig"),
-        srcs = [_source_label(source_repo, "kconfig_files")],
-        vars = compact_vars,
-        version = version,
-        visibility = visibility,
-    )
+        "root": _source_label(source_repo, "Kconfig"),
+        "source_root": _source_label(source_repo, "Kconfig"),
+        "srcs": [_source_label(source_repo, "kconfig_files")],
+        "vars": compact_vars,
+        "version": version,
+        "visibility": visibility,
+    }
+    if rust_toolchain_probe:
+        kwargs["rust_toolchain_probe"] = rust_toolchain_probe
+    linux_resolved_config(**kwargs)
 
 def _define_outputs(
         prefix,
@@ -62,6 +72,7 @@ def _define_outputs(
         host_tools,
         rust_profile_json,
         rust_enabled,
+        rust_toolchain_probe,
         source_repo,
         version,
         visibility):
@@ -84,6 +95,7 @@ def _define_outputs(
             "source_tree": _source_tree_inputs(source_repo),
             "srcarch": arch.srcarch,
             "target_compatible_with": [arch.platform],
+            "toolchain_probe": rust_toolchain_probe,
             "visibility": visibility,
         }
         if hasattr(host_tools, "objtool"):
@@ -160,6 +172,7 @@ def linux_image_targets(
         arch,
         version,
         source_repo,
+        minimum_rustc_version,
         rust_profile_json,
         platform,
         base_config,
@@ -179,6 +192,30 @@ def linux_image_targets(
     if sorted(variant_configs.keys()) != sorted(variant_rust_enabled.keys()):
         fail("variant_rust_enabled must contain exactly the variant config names")
     descriptor = _architecture(arch)
+    any_rust_enabled = base_rust_enabled or True in variant_rust_enabled.values()
+    rust_toolchain_probe_target = None
+    if any_rust_enabled:
+        rust_toolchain_capture_target = ":_rust_toolchain"
+        rust_toolchain_probe_target = ":_rust_toolchain_probe"
+        linux_rust_toolchain_capture(
+            name = "_rust_toolchain",
+            exec_compatible_with = [
+                "@platforms//cpu:x86_64",
+                "@platforms//os:linux",
+            ],
+            visibility = ["//:__pkg__"],
+        )
+        linux_rust_toolchain_probe(
+            name = "_rust_toolchain_probe",
+            exec_compatible_with = [
+                "@platforms//cpu:x86_64",
+                "@platforms//os:linux",
+            ],
+            host_toolchain = rust_toolchain_capture_target,
+            minimum_version = minimum_rustc_version,
+            target_toolchain = rust_toolchain_capture_target,
+            visibility = ["//:__subpackages__"],
+        )
     variant_packages = [
         "//variants/%s:__pkg__" % name
         for name in sorted(variant_configs.keys())
@@ -193,6 +230,7 @@ def linux_image_targets(
         config = base_config,
         config_mode = config_mode,
         arch = descriptor,
+        rust_toolchain_probe = rust_toolchain_probe_target,
         source_repo = source_repo,
         version = version,
         visibility = internal_visibility,
@@ -218,6 +256,7 @@ def linux_image_targets(
         host_tools = host_tools,
         rust_profile_json = rust_profile_json,
         rust_enabled = base_rust_enabled,
+        rust_toolchain_probe = rust_toolchain_probe_target,
         source_repo = source_repo,
         version = version,
         visibility = internal_visibility,
@@ -249,6 +288,7 @@ def linux_image_targets(
             config = variant_configs[variant],
             config_mode = config_mode,
             arch = descriptor,
+            rust_toolchain_probe = rust_toolchain_probe_target,
             source_repo = source_repo,
             version = version,
             visibility = internal_visibility,
@@ -274,6 +314,7 @@ def linux_image_targets(
             host_tools = variant_host_tools,
             rust_profile_json = rust_profile_json,
             rust_enabled = variant_rust_enabled[variant],
+            rust_toolchain_probe = rust_toolchain_probe_target,
             source_repo = source_repo,
             version = version,
             visibility = internal_visibility,

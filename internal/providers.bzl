@@ -21,6 +21,7 @@ LinuxRustSdkInfo = provider(
         "compile_inputs": "Depset of Rust crate metadata, generated sources, and toolchain inputs.",
         "enabled": "Whether CONFIG_RUST is enabled for this kernel.",
         "module_flags": "Rust compiler flags shared by external modules.",
+        "module_version_predicates": "Ordered rustc-version predicates for external module flags.",
         "objtool": "Configured objtool executable File, or None when objtool is disabled.",
         "objtree": "Execroot-relative object-tree directory used by Rust source includes.",
         "objtree_anchor": "File-backed reference to objtree for path-mapped actions.",
@@ -29,10 +30,39 @@ LinuxRustSdkInfo = provider(
         "rustc": "Exact rustc File used to build the SDK, or None when disabled.",
         "rustc_env": "Hermetic environment used to invoke rustc.",
         "rustc_files": "Depset of rustc runtime/toolchain input Files.",
-        "rustc_version_runner": "Hermetic rustc version-checking executable File, or None when disabled.",
-        "rustc_version": "Exact rustc version used to build the SDK, or an empty string when disabled.",
+        "rustc_probe": "Action-generated JSON identity for the selected rustc, or None when disabled.",
+        "minimum_rustc_version": "Minimum upstream rustc release accepted by this kernel.",
         "runtime_objects": "Ordered list of Rust runtime object Files folded into vmlinux.o.",
         "target_spec": "Rust target specification File, or None for a built-in target.",
+    },
+)
+
+LinuxRustCompilerInfo = provider(
+    doc = "Private compiler view captured from one configured rules_rust toolchain.",
+    fields = {
+        "dylib_ext": "Dynamic-library extension for this compiler's target platform.",
+        "env": "Hermetic rustc environment.",
+        "files": "Depset of rustc runtime/toolchain input Files.",
+        "rustc": "Selected rustc executable File.",
+        "rustc_srcs": "Depset of sources matching the selected rustc.",
+        "sysroot": "Execroot-relative selected Rust sysroot path.",
+        "sysroot_anchor": "File anchoring the selected Rust sysroot.",
+    },
+)
+
+LinuxRustToolchainInfo = provider(
+    doc = "Private shared Rust toolchain selected for one generated kernel repository.",
+    fields = {
+        "dylib_ext": "Dynamic-library extension from the target-configured compiler view.",
+        "env": "Hermetic rustc environment.",
+        "files": "Depset of rustc runtime/toolchain input Files.",
+        "host": "LinuxRustCompilerInfo selected in the probe rule's execution configuration.",
+        "minimum_version": "Minimum upstream rustc release accepted by the kernel.",
+        "probe": "Action-generated JSON identity for the selected rustc.",
+        "rustc": "Selected rustc executable File.",
+        "rustc_srcs": "Depset of sources matching the selected rustc.",
+        "sysroot": "Execroot-relative selected Rust sysroot path.",
+        "sysroot_anchor": "File anchoring the selected Rust sysroot.",
     },
 )
 
@@ -40,6 +70,7 @@ LinuxModuleSdkInfo = provider(
     doc = "Private, configuration-specific inputs required to build Linux modules.",
     fields = {
         "arch": "Canonical Linux target architecture.",
+        "btf_tools": "Private pahole, resolve_btfids, btfmutate, and objcopy executables.",
         "config": "LinuxConfigInfo for the configured kernel.",
         "generated_headers": "LinuxGeneratedHeadersInfo for the configured kernel.",
         "kernel_key": "Stable identity used to reject cross-kernel module dependencies.",

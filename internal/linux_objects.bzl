@@ -12,7 +12,7 @@ load(
     "directory_anchor",
     "path_mapped_run",
 )
-load(":providers.bzl", "LinuxRustSdkInfo", "LinuxVmlinuxInfo")
+load(":providers.bzl", "LinuxRustSdkInfo", "LinuxRustToolchainInfo", "LinuxVmlinuxInfo")
 
 visibility("public")
 
@@ -3057,6 +3057,11 @@ def _linux_resolved_config_impl(ctx):
     args.add("-resolved_rustc_cfg_out", rustc_cfg)
     args.add("-resolved_kernel_release_out", kernel_release)
     args.add("-kernel_version", ctx.attr.version)
+    rust_toolchain_probe = None
+    if ctx.attr.rust_toolchain_probe:
+        rust_toolchain_probe = ctx.attr.rust_toolchain_probe[LinuxRustToolchainInfo].probe
+        args.add("-rust_toolchain_probe", rust_toolchain_probe)
+        args.add("-validate_config_equivalence")
     _add_linux_probe_args(args, ctx.attr.allow_shell, ctx.attr.probe_model, ctx.attr.probe_values)
     for key, value in sorted(vars.items()):
         args.add("-var", "%s=%s" % (key, value))
@@ -3064,6 +3069,8 @@ def _linux_resolved_config_impl(ctx):
         args.add("-env", "%s=%s" % (key, value))
 
     inputs = [ctx.file.root, fragment] + ctx.files.srcs + extra_kconfig_inputs
+    if rust_toolchain_probe:
+        inputs.append(rust_toolchain_probe)
     if ctx.file.source_root:
         inputs.append(ctx.file.source_root)
     path_mapped_run(
@@ -3151,6 +3158,10 @@ linux_resolved_config = rule(
         ),
         "probe_values": attr.string_dict(
             doc = "Overrides for the selected Linux Kconfig probe model.",
+        ),
+        "rust_toolchain_probe": attr.label(
+            providers = [LinuxRustToolchainInfo],
+            doc = "Optional shared selected Rust toolchain identity.",
         ),
         "root": attr.label(
             allow_single_file = True,

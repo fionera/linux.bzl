@@ -10,26 +10,34 @@ visibility("private")
 def _fake_module_kernel_impl(ctx):
     module_symvers = ctx.actions.declare_file(ctx.label.name + ".Module.symvers")
     rustc = ctx.actions.declare_file(ctx.label.name + ".rustc")
-    rustc_version_runner = ctx.actions.declare_file(ctx.label.name + ".rustcversionrun")
+    rustc_probe = ctx.actions.declare_file(ctx.label.name + ".rustc_probe.json")
     rustc_cfg = ctx.actions.declare_file(ctx.label.name + ".rust_sdk/include/generated/rustc_cfg")
-    target_spec = ctx.actions.declare_file(ctx.label.name + ".rust_sdk/scripts/target.json")
+    objtree_anchor_file = ctx.actions.declare_file(ctx.label.name + ".rust_sdk/.anchor")
     rust_dir_anchor_file = ctx.actions.declare_file(ctx.label.name + ".rust_sdk/rust/.anchor")
     for output in [
         module_symvers,
+        objtree_anchor_file,
         rustc,
         rustc_cfg,
-        rustc_version_runner,
+        rustc_probe,
         rust_dir_anchor_file,
-        target_spec,
     ]:
         ctx.actions.write(output, "")
 
     return [
         DefaultInfo(files = depset([module_symvers])),
         LinuxModuleSdkInfo(
-            arch = "x86_64",
+            arch = "aarch64",
+            btf_tools = struct(
+                btfmutate = None,
+                llvm_objcopy = None,
+                pahole = None,
+                resolve_btfids = None,
+            ),
             config = struct(
                 config_flags = {
+                    "CONFIG_DEBUG_INFO_BTF": "y",
+                    "CONFIG_DEBUG_INFO_BTF_MODULES": "y",
                     "CONFIG_MODULES": "y",
                     "CONFIG_RUST": "y",
                 },
@@ -41,17 +49,24 @@ def _fake_module_kernel_impl(ctx):
                 compile_inputs = depset(),
                 enabled = True,
                 module_flags = [],
+                module_version_predicates = [{
+                    "add": ["--cfg", "new_rustc"],
+                    "at_least": "1.98.0",
+                    "else_add": [],
+                    "else_remove": [],
+                    "remove": [],
+                }],
                 objtool = None,
-                objtree = target_spec.dirname.rsplit("/", 1)[0],
-                objtree_anchor = struct(file = target_spec, parents = 1),
+                objtree = objtree_anchor_file.dirname,
+                objtree_anchor = struct(file = objtree_anchor_file, parents = 0),
                 rust_dir = rust_dir_anchor_file.dirname,
                 rust_dir_anchor = struct(file = rust_dir_anchor_file, parents = 0),
                 rustc = rustc,
                 rustc_env = {},
-                rustc_files = depset([rustc, rustc_version_runner]),
-                rustc_version = "1.97.0",
-                rustc_version_runner = rustc_version_runner,
-                target_spec = target_spec,
+                rustc_files = depset([rustc]),
+                rustc_probe = rustc_probe,
+                minimum_rustc_version = "1.78.0",
+                target_spec = None,
             ),
             version = "6.18.39",
         ),
@@ -122,6 +137,49 @@ def _module_command_flags_test_impl(ctx):
     return unittest.end(env)
 
 _module_command_flags_test = unittest.make(_module_command_flags_test_impl)
+
+def _module_btf_flags_test_impl(ctx):
+    env = unittest.begin(ctx)
+    config = struct(config_flags = {
+        "CONFIG_PAHOLE_HAS_LANG_EXCLUDE": "y",
+        "CONFIG_PAHOLE_VERSION": "131",
+    })
+    internal_flags = linux_module_actions.pahole_flags(
+        config,
+        "6.18.39",
+    )
+    external_flags = linux_module_actions.pahole_flags(
+        config,
+        "6.18.39",
+        external_module = True,
+    )
+    asserts.true(env, "--lang_exclude=rust" in internal_flags)
+    asserts.false(env, "--btf_features=distilled_base" in internal_flags)
+    asserts.true(env, "--lang_exclude=rust" in external_flags)
+    asserts.true(env, "--btf_features=distilled_base" in external_flags)
+    for version, pahole_version, want_distilled_base in [
+        ("6.12.96", "126", True),
+        ("6.12.96", "127", True),
+        ("6.18.39", "126", False),
+        ("6.18.39", "127", False),
+        ("6.18.39", "128", True),
+    ]:
+        flags = linux_module_actions.pahole_flags(
+            struct(config_flags = {
+                "CONFIG_PAHOLE_VERSION": pahole_version,
+            }),
+            version,
+            external_module = True,
+        )
+        asserts.equals(
+            env,
+            want_distilled_base,
+            "--btf_features=distilled_base" in flags,
+            "Linux %s with pahole 1.%s" % (version, pahole_version),
+        )
+    return unittest.end(env)
+
+_module_btf_flags_test = unittest.make(_module_btf_flags_test_impl)
 
 def _module_sanitizer_flags_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -223,6 +281,8 @@ def linux_module_test_suite(name):
     )
     command_flags_test = name + "_command_flags_test"
     _module_command_flags_test(name = command_flags_test)
+    btf_flags_test = name + "_btf_flags_test"
+    _module_btf_flags_test(name = btf_flags_test)
     sanitizer_flags_test = name + "_sanitizer_flags_test"
     _module_sanitizer_flags_test(name = sanitizer_flags_test)
 
@@ -230,6 +290,7 @@ def linux_module_test_suite(name):
         name = name,
         tests = [
             ":" + name + "_dependency_mismatch_test",
+            ":" + btf_flags_test,
             ":" + command_flags_test,
             ":" + sanitizer_flags_test,
         ],

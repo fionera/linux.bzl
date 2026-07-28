@@ -503,7 +503,7 @@ def _version_at_least(version, major, minor):
         fail("invalid Linux version %r" % version)
     return (int(parts[0]), int(parts[1])) >= (major, minor)
 
-def _pahole_flags(config, version):
+def _pahole_flags(config, version, external_module = False):
     pahole_version = int(config.config_flags.get("CONFIG_PAHOLE_VERSION", "0"))
     flags = []
     if pahole_version <= 125:
@@ -522,6 +522,9 @@ def _pahole_flags(config, version):
             flags.append("--btf_features=attributes")
     if config.config_flags.get("CONFIG_PAHOLE_HAS_LANG_EXCLUDE") == "y":
         flags.append("--lang_exclude=rust")
+    distilled_base_minimum = 128 if _version_at_least(version, 6, 18) else 126
+    if external_module and pahole_version >= distilled_base_minimum:
+        flags.append("--btf_features=distilled_base")
     return flags
 
 def _check_module_modinfo(ctx, module, output):
