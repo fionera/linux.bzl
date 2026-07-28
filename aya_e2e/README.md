@@ -2,7 +2,7 @@
 
 This standalone module pins
 [`aya-rs/aya`](https://github.com/aya-rs/aya) at
-`412fe810cb9d933a3db42d7b427ad8290f969c3d` and runs Aya's upstream
+`9e943b24ca2256eecce7db73de43c8d2b49c0c33` and runs Aya's upstream
 x86_64 and aarch64 integration VMs against the adjacent `linux.bzl`
 checkout.
 

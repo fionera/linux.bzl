@@ -134,9 +134,54 @@ def _module_command_flags_test_impl(ctx):
             "module",
         ),
     )
+    asserts.equals(
+        env,
+        [
+            "-config",
+            "kernel.config",
+            "-objtool",
+            "objtool",
+            "-in",
+            "module.raw.o",
+            "-mode",
+            "module",
+            "-out",
+            "module.o",
+            "-force",
+            "-objtool_arg=--custom",
+        ],
+        linux_module_actions.objtool_args(
+            "kernel.config",
+            "objtool",
+            "module.raw.o",
+            "module.o",
+            "module",
+            force = True,
+            extra_args = ["--custom"],
+        ),
+    )
     return unittest.end(env)
 
 _module_command_flags_test = unittest.make(_module_command_flags_test_impl)
+
+def _module_root_objtool_policy_test_impl(ctx):
+    env = unittest.begin(ctx)
+    normal = struct(config_flags = {})
+    lto = struct(config_flags = {"CONFIG_LTO_CLANG": "y"})
+    ibt = struct(config_flags = {"CONFIG_X86_KERNEL_IBT": "y"})
+    single = struct(module_root_kind = "single")
+    composite = struct(module_root_kind = "composite")
+    legacy = struct(module_root_kind = "")
+
+    asserts.false(env, linux_module_actions.module_root_needs_objtool(normal, single))
+    asserts.false(env, linux_module_actions.module_root_needs_objtool(lto, single))
+    asserts.false(env, linux_module_actions.module_root_needs_objtool(normal, composite))
+    asserts.true(env, linux_module_actions.module_root_needs_objtool(lto, composite))
+    asserts.true(env, linux_module_actions.module_root_needs_objtool(ibt, composite))
+    asserts.true(env, linux_module_actions.module_root_needs_objtool(normal, legacy))
+    return unittest.end(env)
+
+_module_root_objtool_policy_test = unittest.make(_module_root_objtool_policy_test_impl)
 
 def _module_btf_flags_test_impl(ctx):
     env = unittest.begin(ctx)
@@ -281,6 +326,8 @@ def linux_module_test_suite(name):
     )
     command_flags_test = name + "_command_flags_test"
     _module_command_flags_test(name = command_flags_test)
+    root_objtool_policy_test = name + "_root_objtool_policy_test"
+    _module_root_objtool_policy_test(name = root_objtool_policy_test)
     btf_flags_test = name + "_btf_flags_test"
     _module_btf_flags_test(name = btf_flags_test)
     sanitizer_flags_test = name + "_sanitizer_flags_test"
@@ -292,6 +339,7 @@ def linux_module_test_suite(name):
             ":" + name + "_dependency_mismatch_test",
             ":" + btf_flags_test,
             ":" + command_flags_test,
+            ":" + root_objtool_policy_test,
             ":" + sanitizer_flags_test,
         ],
     )

@@ -58,15 +58,17 @@ config RUSTC_HAS_FOO
 func TestValidateRustToolchainEquivalence(t *testing.T) {
 	actual := &ResolvedConfig{
 		Effective: map[string]string{
-			"CONFIG_RUST":           "y",
-			"CONFIG_RUSTC_VERSION":  "109800",
-			"CONFIG_RUSTC_HAS_FOO":  "y",
-			"CONFIG_STRUCTURAL_NEW": "n",
+			"CONFIG_RUST":          "y",
+			"CONFIG_RUSTC_VERSION": "109800",
+			"CONFIG_RUSTC_HAS_FOO": "y",
+			"CONFIG_HAVE_CFI_ICALL_NORMALIZE_INTEGERS_RUSTC": "y",
+			"CONFIG_STRUCTURAL_NEW":                          "n",
 		},
 		Written: map[string]bool{
 			"CONFIG_RUST":          true,
 			"CONFIG_RUSTC_VERSION": true,
 			"CONFIG_RUSTC_HAS_FOO": true,
+			"CONFIG_HAVE_CFI_ICALL_NORMALIZE_INTEGERS_RUSTC": true,
 		},
 	}
 	if err := ValidateRustToolchainEquivalence(map[string]string{

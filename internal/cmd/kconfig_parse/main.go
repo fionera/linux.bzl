@@ -160,6 +160,7 @@ func main() {
 		objectLabelPackage       = flag.String("object_label_package", "", "Bazel package containing the compact object BUILD file. Defaults to -object_buildfile_out package")
 		sourceLabelPackage       = flag.String("source_label_package", "", "Bazel package containing Linux source file labels for generated compact object BUILD files")
 		sourceASN1Compiler       = flag.String("source_asn1_compiler", "", "Bazel label for the kernel source tree's scripts/asn1_compiler tool emitted into source-backed compact object rules")
+		sourceObjtool            = flag.String("source_objtool", "", "Bazel label for the kernel source tree's objtool executable emitted into x86 source-backed compact object rules")
 		sourceRelacheck          = flag.String("source_relacheck", "", "Bazel label for the kernel source tree's arch/arm64/kernel/pi/relacheck tool emitted into arm64 .pi.o rules")
 		sourceConfig             = flag.String("source_config", "", "Bazel label for a full LinuxConfigInfo target emitted into source-backed compact object rules")
 		sourceRootLabel          = flag.String("source_root_label", "", "Bazel label for a file in the Linux source root, emitted into source-backed compact object rules")
@@ -411,6 +412,7 @@ func main() {
 				SourceLabelPackage:       *sourceLabelPackage,
 				SourceLabelPackages:      namedValueMap(sourceLabelMaps),
 				SourceASN1Compiler:       *sourceASN1Compiler,
+				SourceObjtool:            *sourceObjtool,
 				SourceRelacheck:          *sourceRelacheck,
 				SourceConfig:             *sourceConfig,
 				SourceRootLabel:          *sourceRootLabel,
@@ -467,6 +469,7 @@ func main() {
 				SourceLabelPackage:       *sourceLabelPackage,
 				SourceLabelPackages:      namedValueMap(sourceLabelMaps),
 				SourceASN1Compiler:       *sourceASN1Compiler,
+				SourceObjtool:            *sourceObjtool,
 				SourceRelacheck:          *sourceRelacheck,
 				SourceConfig:             *sourceConfig,
 				SourceRootLabel:          *sourceRootLabel,

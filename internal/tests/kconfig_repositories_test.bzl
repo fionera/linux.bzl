@@ -34,3 +34,25 @@ def _graph_config_args_test_impl(ctx):
     return unittest.end(env)
 
 graph_config_args_test = unittest.make(_graph_config_args_test_impl)
+
+def _graph_arch_tool_args_test_impl(ctx):
+    env = unittest.begin(ctx)
+    asserts.equals(
+        env,
+        [
+            "-source_objtool",
+            "//:_base_x86_objtool",
+        ],
+        repositories_test_helpers.graph_arch_tool_args("x86_64", "_base"),
+    )
+    asserts.equals(
+        env,
+        [
+            "-source_relacheck",
+            "//:_variant_debug_relacheck_tool",
+        ],
+        repositories_test_helpers.graph_arch_tool_args("aarch64", "_variant_debug"),
+    )
+    return unittest.end(env)
+
+graph_arch_tool_args_test = unittest.make(_graph_arch_tool_args_test_impl)

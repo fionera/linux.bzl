@@ -263,7 +263,8 @@ func IsRustToolchainValue(key string) bool {
 	case "CONFIG_RUSTC_VERSION",
 		"CONFIG_RUSTC_LLVM_VERSION",
 		"CONFIG_RUSTC_VERSION_TEXT",
-		"CONFIG_RUST_IS_AVAILABLE":
+		"CONFIG_RUST_IS_AVAILABLE",
+		"CONFIG_HAVE_CFI_ICALL_NORMALIZE_INTEGERS_RUSTC":
 		return true
 	default:
 		return strings.HasPrefix(key, "CONFIG_RUSTC_HAS_")

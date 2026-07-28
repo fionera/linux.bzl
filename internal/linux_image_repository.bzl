@@ -778,11 +778,7 @@ def _generate_config_graph(
         "-visibility",
         "//:__subpackages__",
     ]
-    if arch == "aarch64":
-        args.extend([
-            "-source_relacheck",
-            "//:%s_relacheck_tool" % target_prefix,
-        ])
+    args.extend(_graph_arch_tool_args(arch, target_prefix))
     args.extend(_graph_config_args(
         config_name,
         rctx.path(config_path),
@@ -816,6 +812,19 @@ def _graph_config_args(config_name, config_path, config_mode):
         "-config_mode",
         config_mode,
     ]
+
+def _graph_arch_tool_args(arch, target_prefix):
+    if arch == "x86_64":
+        return [
+            "-source_objtool",
+            "//:%s_x86_objtool" % target_prefix,
+        ]
+    if arch == "aarch64":
+        return [
+            "-source_relacheck",
+            "//:%s_relacheck_tool" % target_prefix,
+        ]
+    return []
 
 def _add_generator_variables(args, descriptor, minimum_rustc_version):
     variables = dict(descriptor.compact_vars)
@@ -969,6 +978,7 @@ linux_image_targets(
     )
 
 repositories_test_helpers = struct(
+    graph_arch_tool_args = _graph_arch_tool_args,
     graph_config_args = _graph_config_args,
     generator_protocol = _REPOSITORY_GENERATOR_PROTOCOL,
     kernel_root_build = _kernel_root_build,

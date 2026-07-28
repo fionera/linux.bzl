@@ -15,9 +15,9 @@ bazel_dep(name = "rules_rs", version = "0.0.99")
 # Remove after rules_rs 0.0.99 is published.
 archive_override(
     module_name = "rules_rs",
-    integrity = "sha256-xVpABalVJOEhayt3vQXyKuqM/LF3ujHWtVNfzVoPXO0=",
-    strip_prefix = "rules_rs-40b177e348ee2f0da8e7a7a81be2cca69ad72f37",
-    urls = ["https://github.com/fionera/rules_rs/archive/40b177e348ee2f0da8e7a7a81be2cca69ad72f37.tar.gz"],
+    integrity = "sha256-w0arAyr5SW3fTNyF/Mp6TcNYgaIjalGzsImTkvgzuio=",
+    strip_prefix = "rules_rs-6c45c1c32c3cab40eb69443ffc4eb6be9b4a573b",
+    urls = ["https://github.com/fionera/rules_rs/archive/6c45c1c32c3cab40eb69443ffc4eb6be9b4a573b.tar.gz"],
 )
 
 register_toolchains("@hermetic_llvm//toolchain:all")
