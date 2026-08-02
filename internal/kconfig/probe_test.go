@@ -360,6 +360,22 @@ func TestLinuxLLVMProbeShellSupportsExactRISCVKconfigCandidates(t *testing.T) {
 	}
 }
 
+func TestLinuxLLVMProbeShellSupportsExactRISCVAssemblerCandidates(t *testing.T) {
+	shell := testLinuxProbeShell(t, "riscv64")
+	for _, source := range []string{
+		`.insn 0x100000f`,
+		`.option arch, +m`,
+		`.option arch, +v, +zvkb`,
+		`.reloc label, R_RISCV_SET_ULEB128, 127\n.reloc label, R_RISCV_SUB_ULEB128, 127\nlabel:\n.word 0`,
+	} {
+		command := `printf "%b\n" "` + source + `" | clang -fintegrated-as -Wa,--fatal-warnings -c -x assembler-with-cpp -o /dev/null -`
+		got, err := shell(context.Background(), `{ `+command+`; } >/dev/null 2>&1 && echo "y" || echo "n"`)
+		if err != nil || got != "y" {
+			t.Errorf("shell(%q) = %q, %v; want y", command, got, err)
+		}
+	}
+}
+
 func TestLinuxLLVMProbeShellSupportsExactPPC64LEKconfigCandidates(t *testing.T) {
 	shell := testLinuxProbeShell(t, "ppc64le")
 	for _, candidate := range []string{

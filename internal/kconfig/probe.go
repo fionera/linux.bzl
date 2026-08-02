@@ -835,6 +835,10 @@ var linuxLLVMKnownCSourceFragments = []string{
 }
 
 var linuxLLVMKnownAssemblerFragments = []string{
+	`.insn 0x100000f`,
+	`.option arch, +m`,
+	`.option arch, +v, +zvkb`,
+	`R_RISCV_SET_ULEB128`,
 	`.arch armv8.2-a+sha3`,
 	`.arch armv8.5-a+memtag`,
 	`.arch_extension lse`,
