@@ -14,18 +14,19 @@ import (
 )
 
 type KbuildFile struct {
-	Objects          []KbuildObject         `json:"objects"`
-	Flags            []KbuildFlag           `json:"flags"`
-	RemoveFlags      []KbuildFlag           `json:"remove_flags,omitempty"`
-	Directories      []KbuildDir            `json:"directories,omitempty"`
-	Generated        []KbuildTarget         `json:"generated,omitempty"`
-	Includes         []KbuildInclude        `json:"includes,omitempty"`
-	Rules            []KbuildRule           `json:"rules,omitempty"`
-	TargetVariables  []KbuildTargetVariable `json:"target_variables,omitempty"`
-	objectAssigns    []kbuildObjectAssignment
-	compositeMembers []kbuildCompositeMember
-	compositeAssigns []kbuildCompositeAssignment
-	objectSettings   []kbuildObjectSetting
+	Objects           []KbuildObject         `json:"objects"`
+	Flags             []KbuildFlag           `json:"flags"`
+	RemoveFlags       []KbuildFlag           `json:"remove_flags,omitempty"`
+	Directories       []KbuildDir            `json:"directories,omitempty"`
+	Generated         []KbuildTarget         `json:"generated,omitempty"`
+	Includes          []KbuildInclude        `json:"includes,omitempty"`
+	Rules             []KbuildRule           `json:"rules,omitempty"`
+	TargetVariables   []KbuildTargetVariable `json:"target_variables,omitempty"`
+	objectAssigns     []kbuildObjectAssignment
+	compositeMembers  []kbuildCompositeMember
+	compositeAssigns  []kbuildCompositeAssignment
+	objectSettings    []kbuildObjectSetting
+	exportedVariables map[string]string
 }
 
 type KbuildObject struct {
@@ -214,6 +215,9 @@ func parseKbuildFileTree(path string, opts KbuildOptions, variableOverrides map[
 	if err := parser.finalizeObjectSettings(); err != nil {
 		return nil, err
 	}
+	if err := parser.finalizeExportedVariables(); err != nil {
+		return nil, err
+	}
 	return parser.kb, nil
 }
 
@@ -223,11 +227,15 @@ func ParseKbuildDirectoryTree(path string, opts KbuildOptions) (*KbuildFile, err
 		rootDir = filepath.Dir(path)
 	}
 	parser := &kbuildDirectoryTreeParser{
-		opts:      opts,
-		rootDir:   rootDir,
-		cache:     map[string]*KbuildFile{},
-		rootCache: map[string]*KbuildFile{},
-		stack:     map[string]bool{},
+		opts:               opts,
+		rootDir:            rootDir,
+		cache:              map[string]*KbuildFile{},
+		rootCache:          map[string]*KbuildFile{},
+		stack:              map[string]bool{},
+		inheritedVariables: maps.Clone(opts.Variables),
+	}
+	if err := parser.collectRootExports(); err != nil {
+		return nil, err
 	}
 	return parser.parsePath(path, "", KbuildCondition{Kind: "const", State: "y"}, true)
 }
@@ -251,7 +259,33 @@ func parseKbuildWithOptions(r io.Reader, filename string, opts KbuildOptions, ba
 	if err := parser.finalizeObjectSettings(); err != nil {
 		return nil, err
 	}
+	if err := parser.finalizeExportedVariables(); err != nil {
+		return nil, err
+	}
 	return parser.kb, nil
+}
+
+func (p *kbuildParser) finalizeExportedVariables() error {
+	names := make([]string, 0, len(p.exported))
+	for name, exported := range p.exported {
+		if exported {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	values := make(map[string]string, len(names))
+	for _, name := range names {
+		value, ok, err := p.expandVariable(name, "$("+name+")", 0)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			value = ""
+		}
+		values[name] = value
+	}
+	p.kb.exportedVariables = values
+	return nil
 }
 
 func (p *kbuildParser) finalizeObjectSettings() error {
@@ -362,6 +396,7 @@ type kbuildParser struct {
 	kb                      *KbuildFile
 	initialVars             map[string]string
 	vars                    map[string]kbuildVariable
+	exported                map[string]bool
 	undefined               map[string]bool
 	locals                  []map[string]string
 	expanding               map[string]bool
@@ -418,6 +453,7 @@ func newKbuildParserWithOverrides(vars, overrides map[string]string, baseDir str
 		kb:          &KbuildFile{},
 		initialVars: initial,
 		vars:        local,
+		exported:    map[string]bool{},
 		expanding:   map[string]bool{},
 		baseDir:     baseDir,
 		currentRule: -1,
@@ -784,8 +820,14 @@ func (p *kbuildParser) parseVariableDirective(line string) (bool, error) {
 	}
 
 	if rest, ok := makeDirectiveRest(line, "unexport"); ok {
-		_, err := p.expandVariableDirectiveNames(rest)
-		return true, err
+		names, err := p.expandVariableDirectiveNames(rest)
+		if err != nil {
+			return true, err
+		}
+		for _, name := range names {
+			delete(p.exported, name)
+		}
+		return true, nil
 	}
 
 	if rest, ok := makeDirectiveRest(line, "export"); ok {
@@ -797,6 +839,7 @@ func (p *kbuildParser) parseVariableDirective(line string) (bool, error) {
 			if _, ok := p.lookupVariable(name); !ok {
 				p.setVariable(name, kbuildVariable{})
 			}
+			p.exported[name] = true
 		}
 		return true, nil
 	}
@@ -820,6 +863,7 @@ func (p *kbuildParser) expandVariableDirectiveNames(value string) ([]string, err
 }
 
 func (p *kbuildParser) parseAssignment(line string, pos Position) error {
+	modifiers, _ := splitMakeAssignmentModifiers(line)
 	lhs, op, rhs, ok := splitKbuildAssignment(line)
 	if !ok {
 		return nil
@@ -837,6 +881,9 @@ func (p *kbuildParser) parseAssignment(line string, pos Position) error {
 		return err
 	}
 	p.assign(lhs, op, rhs, expandedRHS)
+	if slices.Contains(modifiers, "export") {
+		p.exported[lhs] = true
+	}
 
 	values := kbuildFields(expandedRHS)
 	if len(values) == 0 {
@@ -1689,6 +1736,9 @@ func (p *kbuildParser) expandVariable(name, original string, depth int) (string,
 		if p.configVariablesComplete && strings.HasPrefix(name, "CONFIG_") {
 			return "", true, nil
 		}
+		if knownEmptyKbuildMakeRef(name) {
+			return "", true, nil
+		}
 		if p.knownEmptyConditionalVariable(name) {
 			return "", true, nil
 		}
@@ -2331,11 +2381,28 @@ func (kb *KbuildFile) merge(other *KbuildFile) {
 }
 
 type kbuildDirectoryTreeParser struct {
-	opts      KbuildOptions
-	rootDir   string
-	cache     map[string]*KbuildFile
-	rootCache map[string]*KbuildFile
-	stack     map[string]bool
+	opts               KbuildOptions
+	rootDir            string
+	cache              map[string]*KbuildFile
+	rootCache          map[string]*KbuildFile
+	stack              map[string]bool
+	inheritedVariables map[string]string
+}
+
+func (p *kbuildDirectoryTreeParser) collectRootExports() error {
+	if p.inheritedVariables == nil {
+		p.inheritedVariables = map[string]string{}
+	}
+	for _, path := range p.opts.RootMakefiles {
+		root, err := p.parseRootMakefile(path)
+		if err != nil {
+			return err
+		}
+		for name, value := range root.exportedVariables {
+			p.inheritedVariables[name] = value
+		}
+	}
+	return nil
 }
 
 func (p *kbuildDirectoryTreeParser) parsePath(path, objectDir string, gate KbuildCondition, linkRoots bool) (*KbuildFile, error) {
@@ -2351,7 +2418,7 @@ func (p *kbuildDirectoryTreeParser) parsePath(path, objectDir string, gate Kbuil
 		variableOverrides := p.variableOverrides(objectDir)
 		parsed, err := parseKbuildFileTree(abs, KbuildOptions{
 			RootDir:                 p.rootDir,
-			Variables:               p.opts.Variables,
+			Variables:               p.inheritedVariables,
 			ConfigVariablesComplete: p.opts.ConfigVariablesComplete,
 			MaxIncludeDepth:         p.opts.MaxIncludeDepth,
 			ProbeOption:             p.opts.ProbeOption,
@@ -2470,7 +2537,7 @@ func (p *kbuildDirectoryTreeParser) parseRootMakefile(path string) (*KbuildFile,
 	variableOverrides := p.variableOverrides("")
 	parsed, err := parseKbuildFileTree(abs, KbuildOptions{
 		RootDir:                 p.rootDir,
-		Variables:               p.opts.Variables,
+		Variables:               p.inheritedVariables,
 		ConfigVariablesComplete: p.opts.ConfigVariablesComplete,
 		MaxIncludeDepth:         p.opts.MaxIncludeDepth,
 		ProbeOption:             p.opts.ProbeOption,
@@ -2488,10 +2555,10 @@ func (p *kbuildDirectoryTreeParser) variableOverrides(objectDir string) map[stri
 	vars := make(map[string]string, 4)
 	vars["src"] = filepath.ToSlash(filepath.Join(p.rootDir, objectDir))
 	vars["obj"] = objectDir
-	if _, ok := p.opts.Variables["objtree"]; !ok {
+	if _, ok := p.inheritedVariables["objtree"]; !ok {
 		vars["objtree"] = p.rootDir
 	}
-	if _, ok := p.opts.Variables["srctree"]; !ok {
+	if _, ok := p.inheritedVariables["srctree"]; !ok {
 		vars["srctree"] = p.rootDir
 	}
 	return vars

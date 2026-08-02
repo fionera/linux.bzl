@@ -510,6 +510,10 @@ func (s *linuxProbeShell) knownClangAssemblerProbe(ctx context.Context, command 
 			if err != nil {
 				return false, true, err
 			}
+			source, err = decodeKbuildPrintfB(source)
+			if err != nil {
+				return false, true, fmt.Errorf("invalid Linux assembler source probe: %w", err)
+			}
 			supported, err := s.toolProbe.SupportsSource(ctx, "assembler-with-cpp", candidate, source)
 			return supported, true, err
 		}

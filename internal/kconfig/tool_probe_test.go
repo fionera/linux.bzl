@@ -274,6 +274,49 @@ func TestLinuxProbeShellWithToolsCompilesAllowlistedSource(t *testing.T) {
 	}
 }
 
+func TestLinuxProbeShellWithToolsDecodesAssemblerPrintfSource(t *testing.T) {
+	dir := t.TempDir()
+	clang := filepath.Join(dir, "clang")
+	lld := filepath.Join(dir, "ld.lld")
+	captured := filepath.Join(dir, "source")
+	clangScript := `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo 'clang version 22.1.8'
+  exit 0
+fi
+/bin/cat > '` + captured + `'
+`
+	if err := os.WriteFile(clang, []byte(clangScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeProbeTool(t, lld, "LLD version 22.1.8", filepath.Join(dir, "count"))
+	probe, err := NewLinuxToolProbe(LinuxToolProbeOptions{
+		Profile: "aarch64", Architecture: "arm64", TargetTriple: "aarch64-linux-gnu",
+		ClangPath: clang, LLDPath: lld, TempDir: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shell, err := LinuxProbeShellWithTools(probe, LinuxProbeDefaultRustcVersion, LinuxProbeDefaultRustcLLVMVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := `1:\n.inst 0\n.rept . - 1b\n\nnop\n.endr\n`
+	command := `{ printf "%b\n" "` + source + `" | clang -fintegrated-as -Wa,--fatal-warnings -c -x assembler-with-cpp -o /dev/null -; } >/dev/null 2>&1 && echo "y" || echo "n"`
+	got, err := shell(context.Background(), command)
+	if err != nil || got != "y" {
+		t.Fatalf("shell() = %q, %v", got, err)
+	}
+	data, err := os.ReadFile(captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "1:\n.inst 0\n.rept . - 1b\n\nnop\n.endr\n\n"
+	if string(data) != want {
+		t.Fatalf("assembler probe source = %q, want %q", data, want)
+	}
+}
+
 func TestLinuxToolProbeFailsClosedBeforeExecution(t *testing.T) {
 	probe, _ := testRealToolProbe(t, "riscv64")
 	for _, candidate := range [][]string{

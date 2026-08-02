@@ -1937,8 +1937,7 @@ obj-y += init.o
 	kb, err := ParseKbuildFileWithOptions(kbuild, KbuildOptions{
 		RootDir: tmp,
 		Variables: map[string]string{
-			"CC_FLAGS_FTRACE": "",
-			"srctree":         tmp,
+			"srctree": tmp,
 		},
 	})
 	if err != nil {
@@ -2188,6 +2187,66 @@ obj-y += local.o
 				t.Fatalf("flags mismatch\nwant: %#v\n got: %#v", want, got)
 			}
 		})
+	}
+}
+
+func TestParseKbuildDirectoryTreePropagatesExportedRootVariables(t *testing.T) {
+	dir := t.TempDir()
+	for _, child := range []string{"kernel", "mm"} {
+		if err := os.MkdirAll(filepath.Join(dir, "arch", "arm", child), 0o755); err != nil {
+			t.Fatalf("MkdirAll(arch/arm/%s) failed: %v", child, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Kbuild"), []byte("obj-y += arch/arm/kernel/ arch/arm/mm/\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(Kbuild) failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "arch", "arm", "Makefile"), []byte(`MMUEXT := -nommu
+ifeq ($(CONFIG_MMU),y)
+MMUEXT :=
+endif
+TEXT_OFFSET := 0x00008000
+export TEXT_OFFSET MMUEXT
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(arch/arm/Makefile) failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "arch", "arm", "kernel", "Makefile"), []byte(`obj-y += head$(MMUEXT).o
+AFLAGS_head$(MMUEXT).o := -DTEXT_OFFSET=$(TEXT_OFFSET)
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(arch/arm/kernel/Makefile) failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "arch", "arm", "mm", "Makefile"), []byte("obj-y += dma-mapping$(MMUEXT).o\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(arch/arm/mm/Makefile) failed: %v", err)
+	}
+
+	kb, err := ParseKbuildDirectoryTree(filepath.Join(dir, "Kbuild"), KbuildOptions{
+		RootDir:                 dir,
+		RootMakefiles:           []string{"arch/arm/Makefile"},
+		Variables:               map[string]string{"CONFIG_MMU": "y"},
+		ConfigVariablesComplete: true,
+	})
+	if err != nil {
+		t.Fatalf("ParseKbuildDirectoryTree() failed: %v", err)
+	}
+
+	gotObjects := kbuildObjectSummaries(kb.Objects)
+	wantObjects := []kbuildObjectSummary{
+		{object: "arch/arm/kernel/head.o", kind: "const", state: "y", line: 1},
+		{object: "arch/arm/mm/dma-mapping.o", kind: "const", state: "y", line: 1},
+	}
+	if !reflect.DeepEqual(gotObjects, wantObjects) {
+		t.Fatalf("objects mismatch\nwant: %#v\n got: %#v", wantObjects, gotObjects)
+	}
+	gotFlags := kbuildFlagSummaries(kb.Flags)
+	wantFlags := []kbuildFlagSummary{{
+		scope:  "object",
+		object: "arch/arm/kernel/head.o",
+		flags:  "-DTEXT_OFFSET=0x00008000",
+		kind:   "const",
+		state:  "y",
+		line:   2,
+	}}
+	if !reflect.DeepEqual(gotFlags, wantFlags) {
+		t.Fatalf("flags mismatch\nwant: %#v\n got: %#v", wantFlags, gotFlags)
 	}
 }
 
