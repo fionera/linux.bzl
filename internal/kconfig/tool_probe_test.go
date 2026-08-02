@@ -197,3 +197,19 @@ func TestLinuxProbeShellWithToolsUsesMeasuredVersions(t *testing.T) {
 		}
 	}
 }
+
+func TestParseLinuxSourceProbeAcceptsKconfigCompilerVariables(t *testing.T) {
+	for _, compiler := range []string{"$CC", "$(CC)", "/pinned/bin/clang"} {
+		command := "echo 'int foo(void) { return 0; }' | " + compiler + " $(CLANG_FLAGS) -x c - -c -o /dev/null -Werror"
+		source, candidate, err := parseLinuxSourceProbe(command)
+		if err != nil {
+			t.Fatalf("parseLinuxSourceProbe(%q): %v", command, err)
+		}
+		if source != "int foo(void) { return 0; }" {
+			t.Fatalf("source = %q", source)
+		}
+		if got, want := strings.Join(candidate, " "), "-fintegrated-as -Werror"; got != want {
+			t.Fatalf("candidate = %q, want %q", got, want)
+		}
+	}
+}

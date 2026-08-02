@@ -314,8 +314,7 @@ func (s *linuxProbeShell) knownClangOptionProbe(ctx context.Context, command str
 	fields := strings.Fields(command)
 	compiler := -1
 	for i, field := range fields {
-		name := linuxProbeToolName(field)
-		if name == "clang" || field == "$CC" {
+		if isLinuxProbeCompilerToken(field) {
 			compiler = i
 			break
 		}
@@ -332,6 +331,8 @@ func (s *linuxProbeShell) knownClangOptionProbe(ctx context.Context, command str
 		case "-c", "-E":
 			hasCompileMode = true
 		case "-Werror", "-fintegrated-as":
+		case "$CLANG_FLAGS", "$(CLANG_FLAGS)":
+			candidate = append(candidate, "-fintegrated-as")
 		case "-x", "-o":
 			i++
 		case "/dev/null", "-":
@@ -441,7 +442,7 @@ func parseLinuxSourceProbe(command string) (string, []string, error) {
 	fields := strings.Fields(strings.TrimSpace(right))
 	compiler := -1
 	for i, field := range fields {
-		if linuxProbeToolName(field) == "clang" {
+		if isLinuxProbeCompilerToken(field) {
 			compiler = i
 			break
 		}
@@ -455,6 +456,9 @@ func parseLinuxSourceProbe(command string) (string, []string, error) {
 		switch field {
 		case "-c", "-S", "-", "/dev/null":
 			continue
+		case "$CLANG_FLAGS", "$(CLANG_FLAGS)":
+			candidate = append(candidate, "-fintegrated-as")
+			continue
 		case "-x", "-o":
 			i++
 			continue
@@ -462,6 +466,11 @@ func parseLinuxSourceProbe(command string) (string, []string, error) {
 		candidate = append(candidate, field)
 	}
 	return source, candidate, nil
+}
+
+func isLinuxProbeCompilerToken(field string) bool {
+	field = strings.Trim(field, `"'`)
+	return linuxProbeToolName(field) == "clang" || field == "$CC" || field == "$(CC)"
 }
 
 func (s *linuxProbeShell) knownLLDOptionProbe(ctx context.Context, command string) (bool, bool, error) {
