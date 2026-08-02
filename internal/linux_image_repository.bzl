@@ -527,26 +527,26 @@ linux_image = repository_rule(
             doc = "Target platform applied once at the public kernel gateway. It must select a matching Clang toolchain.",
         ),
         "target_profile": attr.string(
-            mandatory = True,
+            default = "x86_64",
             values = sorted(_ARCHITECTURES.keys()),
-            doc = "Canonical target profile derived from the transitioned Bazel platform.",
+            doc = "Canonical target profile derived from the transitioned Bazel platform. Defaults to x86_64 for legacy direct callers.",
         ),
         "linux_arch": attr.string(
-            mandatory = True,
-            doc = "Linux ARCH bound to target_profile.",
+            default = "x86",
+            doc = "Linux ARCH bound to target_profile. Defaults to x86 for legacy direct callers.",
         ),
         "target_triple": attr.string(
-            mandatory = True,
-            doc = "Canonical LLVM target triple bound to target_profile.",
+            default = "x86_64-linux-gnu",
+            doc = "Canonical LLVM target triple bound to target_profile. Defaults to x86_64-linux-gnu for legacy direct callers.",
         ),
         "probe_cc": attr.label(
             allow_single_file = True,
-            mandatory = True,
+            default = Label("@llvm//toolchain:stage2_linux_x86_64/bin/clang"),
             doc = "Integrity-pinned clang source file used for repository-time probes.",
         ),
         "probe_ld": attr.label(
             allow_single_file = True,
-            mandatory = True,
+            default = Label("@llvm//toolchain:stage2_linux_x86_64/bin/ld.lld"),
             doc = "Integrity-pinned ld.lld source file used for repository-time probes.",
         ),
         "source": attr.label(
