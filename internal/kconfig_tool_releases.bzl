@@ -5,7 +5,7 @@ Each archive must extract the requested host executables at its root.
 
 visibility("//...")
 
-KCONFIG_TOOL_VERSION = "v0.0.23-adaptive"
+KCONFIG_TOOL_VERSION = "v0.0.24-adaptive"
 
 _RELEASE_BASE_URL = "https://github.com/fionera/linux.bzl/releases/download/kconfig-{version}".format(
     version = KCONFIG_TOOL_VERSION,
@@ -13,27 +13,27 @@ _RELEASE_BASE_URL = "https://github.com/fionera/linux.bzl/releases/download/kcon
 
 KCONFIG_TOOL_RELEASES = {
     "darwin_amd64": struct(
-        integrity = "sha256-6xtu3Zj6rSa46pNuovlCBtv453sG2v/ohFadsDw0eUc=",
+        integrity = "sha256-4li5J+q7uAbQQMg0g7htIVZEMUVs3w5WNDAKwNu3FWo=",
         urls = ["{}/kconfig-darwin-amd64.tar.zst".format(_RELEASE_BASE_URL)],
     ),
     "darwin_arm64": struct(
-        integrity = "sha256-xhIitJ6C/uFjwSfonv/v1NK+yUhBXpPn/fgwpsZh8jY=",
+        integrity = "sha256-0c4trAW+BzQCUiczKhu39UpjKurerVPZfzD15MtzDB8=",
         urls = ["{}/kconfig-darwin-arm64.tar.zst".format(_RELEASE_BASE_URL)],
     ),
     "linux_amd64": struct(
-        integrity = "sha256-SPv1GlY5ZIW8/TXTZSPv94qZIMYjs0j5IXsRoGxiMLY=",
+        integrity = "sha256-NnF/kA6n9KItTYIEV0foxi4vzeFZ+yzZsklQoIbI5iA=",
         urls = ["{}/kconfig-linux-amd64.tar.zst".format(_RELEASE_BASE_URL)],
     ),
     "linux_arm64": struct(
-        integrity = "sha256-KpMV2fCScL59kcLSvTLgaab4daExZ/bhfzRzchpZ88w=",
+        integrity = "sha256-9y4T6Pr49ve/I0+lQ5HIEYl0g5caWsdmAkMM6OOkhK0=",
         urls = ["{}/kconfig-linux-arm64.tar.zst".format(_RELEASE_BASE_URL)],
     ),
     "windows_amd64": struct(
-        integrity = "sha256-PA+V6SE1iZkFJ0dtJjPFWbqwgwpN4Fvf40ndVUuGRbg=",
+        integrity = "sha256-nnaG6uRH8zwoDbV8WMn4Z65rmexB6uESeaQ6dTazRCE=",
         urls = ["{}/kconfig-windows-amd64.tar.zst".format(_RELEASE_BASE_URL)],
     ),
     "windows_arm64": struct(
-        integrity = "sha256-nxNXnLvSKBbtCjQqi9P52ZTEE3yoCHhOTE3Vi70unig=",
+        integrity = "sha256-AepyL0D3OHH2iSBtVNmdLqtt17BBqiW1Nmmh/LZA1Bg=",
         urls = ["{}/kconfig-windows-arm64.tar.zst".format(_RELEASE_BASE_URL)],
     ),
 }
