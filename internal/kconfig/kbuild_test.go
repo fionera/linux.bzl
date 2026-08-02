@@ -680,6 +680,38 @@ CFLAGS_arch.o := $(call cc-option,-fno-dwarf2-cfi-asm)
 	}
 }
 
+func TestMeasuredKbuildProbeContextUsesEarlierConcreteResults(t *testing.T) {
+	dir := t.TempDir()
+	kbuild := filepath.Join(dir, "Makefile")
+	if err := os.WriteFile(kbuild, []byte(`KBUILD_CFLAGS += $(call cc-option,-fno-dwarf2-cfi-asm)
+KBUILD_CFLAGS += $(call cc-option,-mno-fdpic)
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(Makefile) failed: %v", err)
+	}
+
+	var contexts [][]string
+	_, err := ParseKbuildFileWithOptions(kbuild, KbuildOptions{
+		Variables: map[string]string{"SRCARCH": "arm"},
+		ProbeOption: func(kind string, candidate, context []string) (bool, error) {
+			if kind != "cc_option" || len(candidate) != 1 {
+				t.Fatalf("probe = %q, %#v; want one cc-option candidate", kind, candidate)
+			}
+			contexts = append(contexts, append([]string(nil), context...))
+			return true, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("ParseKbuildFileWithOptions() failed: %v", err)
+	}
+	want := [][]string{
+		{"-Werror"},
+		{"-Werror", "-fno-dwarf2-cfi-asm"},
+	}
+	if !reflect.DeepEqual(contexts, want) {
+		t.Fatalf("probe contexts = %#v, want %#v", contexts, want)
+	}
+}
+
 func TestParseKbuildExpandsAdditionalPureMakeFunctions(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "existing.o"), nil, 0o644); err != nil {

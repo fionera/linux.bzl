@@ -1159,6 +1159,13 @@ func (p *kbuildParser) assign(lhs, op, rhs, expandedRHS string) {
 	case "+=":
 		current, ok := p.lookupVariable(lhs)
 		switch {
+		case !ok && p.probeOption != nil && linuxProbeContextVariable(lhs):
+			// The Linux top-level Makefile initializes these as simple
+			// variables before including architecture Makefiles. Compact tree
+			// parsing starts below that initialization, so preserve the real
+			// flavor here: otherwise a later probe sees the raw earlier
+			// $(call cc-option,...) instead of its measured result.
+			p.setVariable(lhs, kbuildVariable{value: expandedRHS})
 		case !ok:
 			p.setVariable(lhs, kbuildVariable{value: rhs, recursive: true})
 		case current.recursive:
@@ -1176,6 +1183,15 @@ func (p *kbuildParser) assign(lhs, op, rhs, expandedRHS string) {
 		p.setVariable(lhs, kbuildVariable{value: rhs, recursive: true})
 	default:
 		p.setVariable(lhs, kbuildVariable{value: expandedRHS})
+	}
+}
+
+func linuxProbeContextVariable(name string) bool {
+	switch name {
+	case "KBUILD_CPPFLAGS", "KBUILD_CFLAGS", "KBUILD_AFLAGS", "KBUILD_LDFLAGS":
+		return true
+	default:
+		return false
 	}
 }
 
