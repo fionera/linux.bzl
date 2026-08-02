@@ -3201,6 +3201,7 @@ func TestCompactContentGraphCompositeIdentityIgnoresNonActionMetadata(t *testing
 			nil,
 			"linker-abi-v1",
 			nil,
+			"x86",
 		)
 	}
 	left := variant("-DLEFT", "left")
@@ -3568,6 +3569,7 @@ func TestCompactGeneratedDTBWrappersUseAssemblyFlags(t *testing.T) {
 				nil,
 				"linux.bzl/compact-v6/test",
 				nil,
+				"x86",
 			)
 			if got, want := variant.Flags, []string{"-DANY", "-DASM_ONLY"}; !reflect.DeepEqual(got, want) {
 				t.Fatalf("%s flags = %v, want %v", tc.source, got, want)
@@ -3625,6 +3627,7 @@ obj-y += init.o
 			nil,
 			"linux.bzl/compact-v6/test",
 			nil,
+			"x86",
 		)
 	}
 	windowsVariant := variant(kb.Flags[0].Flags, sourceRoot)

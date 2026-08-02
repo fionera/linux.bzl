@@ -2090,6 +2090,107 @@ obj-y += main.o
 	}
 }
 
+func TestParseKbuildDirectoryTreeFiltersActionTimeRootMakefileKbuildFlags(t *testing.T) {
+	tests := []struct {
+		name     string
+		srcarch  string
+		makefile string
+		kept     []string
+	}{
+		{
+			name:    "riscv-empty-march",
+			srcarch: "riscv",
+			makefile: `riscv-march-y :=
+KBUILD_CFLAGS += -march=$(riscv-march-y)
+KBUILD_CFLAGS += -mno-save-restore -mstrict-align
+KBUILD_CPPFLAGS += -I $(srctree)/arch/riscv -DKEEP_RISCV_ROOT
+`,
+			kept: []string{"-I", "$(srctree)/arch/riscv", "-DKEEP_RISCV_ROOT"},
+		},
+		{
+			name:    "powerpc-empty-canary-offset",
+			srcarch: "powerpc",
+			makefile: `canary-offset :=
+KBUILD_CFLAGS += -mstack-protector-guard=tls
+KBUILD_CFLAGS += -mstack-protector-guard-offset=$(canary-offset)
+KBUILD_CPPFLAGS += -I $(srctree)/arch/powerpc -DKEEP_POWERPC_ROOT
+`,
+			kept: []string{"-I", "$(srctree)/arch/powerpc", "-DKEEP_POWERPC_ROOT"},
+		},
+		{
+			name:    "arm64-action-time-defines",
+			srcarch: "arm64",
+			makefile: `asm-arch := armv8.4-a
+KASAN_SHADOW_SCALE_SHIFT := 3
+KBUILD_CFLAGS += -DARM64_ASM_ARCH='"$(asm-arch)"'
+KBUILD_CFLAGS += -DKASAN_SHADOW_SCALE_SHIFT=$(KASAN_SHADOW_SCALE_SHIFT)
+KBUILD_CPPFLAGS += -DKASAN_SHADOW_SCALE_SHIFT=$(KASAN_SHADOW_SCALE_SHIFT)
+KBUILD_AFLAGS += -DKASAN_SHADOW_SCALE_SHIFT=$(KASAN_SHADOW_SCALE_SHIFT)
+KBUILD_AFLAGS += -include $(srctree)/arch/arm64/include/asm/keep.h
+`,
+			kept: []string{"-include", "$(srctree)/arch/arm64/include/asm/keep.h"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "Kbuild"), []byte(`KBUILD_CFLAGS += -fprimary
+obj-y += child/
+`), 0o644); err != nil {
+				t.Fatalf("WriteFile(Kbuild) failed: %v", err)
+			}
+			if err := os.MkdirAll(filepath.Join(dir, "child"), 0o755); err != nil {
+				t.Fatalf("MkdirAll(child) failed: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "child", "Makefile"), []byte(`KBUILD_CFLAGS += -flocal
+obj-y += local.o
+`), 0o644); err != nil {
+				t.Fatalf("WriteFile(child/Makefile) failed: %v", err)
+			}
+			archDir := filepath.Join(dir, "arch", tt.srcarch)
+			if err := os.MkdirAll(archDir, 0o755); err != nil {
+				t.Fatalf("MkdirAll(arch/%s) failed: %v", tt.srcarch, err)
+			}
+			archMakefile := filepath.Join(archDir, "Makefile")
+			if err := os.WriteFile(archMakefile, []byte(tt.makefile+"ccflags-y += -farch-directory\n"), 0o644); err != nil {
+				t.Fatalf("WriteFile(arch/%s/Makefile) failed: %v", tt.srcarch, err)
+			}
+
+			kb, err := ParseKbuildDirectoryTree(filepath.Join(dir, "Kbuild"), KbuildOptions{
+				RootDir:       dir,
+				RootMakefiles: []string{archMakefile},
+				Variables: map[string]string{
+					"ARCH":    tt.srcarch,
+					"SRCARCH": tt.srcarch,
+				},
+			})
+			if err != nil {
+				t.Fatalf("ParseKbuildDirectoryTree() failed: %v", err)
+			}
+
+			got := map[string]string{}
+			for _, flag := range kb.Flags {
+				for _, value := range flag.Flags {
+					got[value] = flag.Directory
+				}
+			}
+			want := map[string]string{
+				"-fprimary":        "",
+				"-farch-directory": "",
+				"-flocal":          "child",
+			}
+			for _, value := range tt.kept {
+				value = strings.ReplaceAll(value, "$(srctree)", filepath.ToSlash(dir))
+				want[value] = ""
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("flags mismatch\nwant: %#v\n got: %#v", want, got)
+			}
+		})
+	}
+}
+
 func TestCompactMetadataResolvesCompositeMembers(t *testing.T) {
 	tree := mustParseCompactFixture(t)
 	kb, err := ParseKbuild(strings.NewReader(`obj-$(CONFIG_NET) += net/stack.o

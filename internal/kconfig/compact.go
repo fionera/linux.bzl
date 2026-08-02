@@ -1715,6 +1715,7 @@ func (memo compactVariantMemo) variantForStack(
 		sourceRefs,
 		opts.CompileEnvironmentABI,
 		generatedHeaderFamilyIDs,
+		opts.Srcarch,
 	)
 	memo[name] = variant
 	return variant, nil
@@ -2117,6 +2118,7 @@ func (o resolvedKbuildObject) variant(
 	sourceRefs []string,
 	compileEnvironmentABI string,
 	generatedHeaderFamilyIDs []string,
+	srcarch string,
 ) CompactObjectVariant {
 	fragment := map[string]string{}
 	refset := make(map[string]bool, len(o.footprint)+len(sourceRefs))
@@ -2129,7 +2131,7 @@ func (o resolvedKbuildObject) variant(
 		refset[ref] = true
 	}
 	if source != "" || isArm64NvheObject(o.object) {
-		for _, ref := range KernelFlagsConfigSymbols() {
+		for _, ref := range KernelFlagsConfigSymbols(srcarch) {
 			refset[ref] = true
 		}
 	}

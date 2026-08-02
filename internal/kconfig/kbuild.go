@@ -148,6 +148,10 @@ type KbuildOptions struct {
 	// as as-instr using the selected real toolchain. The parser never invokes a
 	// command shell.
 	ProbeSource func(language, source string, probeContext []string) (bool, error)
+
+	// filterKbuildFlags is used for supplemental top-level Makefiles whose
+	// late-bound architecture flags are materialized from the resolved config.
+	filterKbuildFlags bool
 }
 
 func ParseKbuildFile(path string) (*KbuildFile, error) {
@@ -200,6 +204,7 @@ func parseKbuildFileTree(path string, opts KbuildOptions, variableOverrides map[
 	parser.configVariablesComplete = opts.ConfigVariablesComplete
 	parser.probeOption = opts.ProbeOption
 	parser.probeSource = opts.ProbeSource
+	parser.filterKbuildFlags = opts.filterKbuildFlags
 	parser.includeFunc = func(includes []KbuildInclude) error {
 		return treeParser.parseIncludes(parser, includes)
 	}
@@ -218,10 +223,11 @@ func ParseKbuildDirectoryTree(path string, opts KbuildOptions) (*KbuildFile, err
 		rootDir = filepath.Dir(path)
 	}
 	parser := &kbuildDirectoryTreeParser{
-		opts:    opts,
-		rootDir: rootDir,
-		cache:   map[string]*KbuildFile{},
-		stack:   map[string]bool{},
+		opts:      opts,
+		rootDir:   rootDir,
+		cache:     map[string]*KbuildFile{},
+		rootCache: map[string]*KbuildFile{},
+		stack:     map[string]bool{},
 	}
 	return parser.parsePath(path, "", KbuildCondition{Kind: "const", State: "y"}, true)
 }
@@ -353,26 +359,26 @@ func (p *kbuildParser) appendMakefileList(filename string) {
 }
 
 type kbuildParser struct {
-	kb           *KbuildFile
-	initialVars  map[string]string
-	vars         map[string]kbuildVariable
-	undefined    map[string]bool
-	locals       []map[string]string
-	expanding    map[string]bool
-	conds        []kbuildConditionalFrame
-	baseDir      string
-	currentPos   Position
-	defineName   string
-	defineOp     string
-	definePos    Position
-	defineBody   []string
-	currentRule  int
-	order        int
-	includeFunc  func([]KbuildInclude) error
-	includeDepth int
-	probeOption  func(kind string, candidate, probeContext []string) (bool, error)
-	probeSource  func(language, source string, probeContext []string) (bool, error)
-
+	kb                      *KbuildFile
+	initialVars             map[string]string
+	vars                    map[string]kbuildVariable
+	undefined               map[string]bool
+	locals                  []map[string]string
+	expanding               map[string]bool
+	conds                   []kbuildConditionalFrame
+	baseDir                 string
+	currentPos              Position
+	defineName              string
+	defineOp                string
+	definePos               Position
+	defineBody              []string
+	currentRule             int
+	order                   int
+	includeFunc             func([]KbuildInclude) error
+	includeDepth            int
+	probeOption             func(kind string, candidate, probeContext []string) (bool, error)
+	probeSource             func(language, source string, probeContext []string) (bool, error)
+	filterKbuildFlags       bool
 	configVariablesComplete bool
 }
 
@@ -845,6 +851,9 @@ func (p *kbuildParser) parseAssignment(line string, pos Position) error {
 				return err
 			}
 			flagValues = additions
+		}
+		if p.filterKbuildFlags {
+			flagValues = filterSupplementalRootKbuildFlags(flagValues)
 		}
 		if flags := concreteKbuildFlags(flagValues); len(flags) != 0 {
 			p.kb.Flags = append(p.kb.Flags, KbuildFlag{
@@ -2322,10 +2331,11 @@ func (kb *KbuildFile) merge(other *KbuildFile) {
 }
 
 type kbuildDirectoryTreeParser struct {
-	opts    KbuildOptions
-	rootDir string
-	cache   map[string]*KbuildFile
-	stack   map[string]bool
+	opts      KbuildOptions
+	rootDir   string
+	cache     map[string]*KbuildFile
+	rootCache map[string]*KbuildFile
+	stack     map[string]bool
 }
 
 func (p *kbuildDirectoryTreeParser) parsePath(path, objectDir string, gate KbuildCondition, linkRoots bool) (*KbuildFile, error) {
@@ -2453,7 +2463,7 @@ func (p *kbuildDirectoryTreeParser) parseRootMakefile(path string) (*KbuildFile,
 	if err != nil {
 		return nil, err
 	}
-	local, ok := p.cache[abs]
+	local, ok := p.rootCache[abs]
 	if ok {
 		return local, nil
 	}
@@ -2465,11 +2475,12 @@ func (p *kbuildDirectoryTreeParser) parseRootMakefile(path string) (*KbuildFile,
 		MaxIncludeDepth:         p.opts.MaxIncludeDepth,
 		ProbeOption:             p.opts.ProbeOption,
 		ProbeSource:             p.opts.ProbeSource,
+		filterKbuildFlags:       true,
 	}, variableOverrides)
 	if err != nil {
 		return nil, err
 	}
-	p.cache[abs] = parsed
+	p.rootCache[abs] = parsed
 	return parsed, nil
 }
 
@@ -3555,6 +3566,43 @@ func concreteKbuildFlags(values []string) []string {
 		flags = append(flags, value)
 	}
 	return flags
+}
+
+func filterSupplementalRootKbuildFlags(values []string) []string {
+	flags := make([]string, 0, len(values))
+	for _, value := range values {
+		if supplementalRootFlagIsActionTime(value) {
+			continue
+		}
+		flags = append(flags, value)
+	}
+	return flags
+}
+
+func supplementalRootFlagIsActionTime(value string) bool {
+	for _, exact := range []string{
+		"-fno-asynchronous-unwind-tables",
+		"-fno-unwind-tables",
+		"-mno-save-restore",
+		"-mstrict-align",
+	} {
+		if value == exact {
+			return true
+		}
+	}
+	for _, prefix := range []string{
+		"-DARM64_ASM_ARCH=",
+		"-DKASAN_SHADOW_SCALE_SHIFT=",
+		"-D__LINUX_ARM_ARCH__=",
+		"-Wa,-march=",
+		"-march=",
+		"-mstack-protector-guard",
+	} {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func globalFlagCondition(lhs string) (bool, string, KbuildCondition, bool) {

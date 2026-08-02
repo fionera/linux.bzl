@@ -73,7 +73,7 @@ func generatedHeaderFamilyFootprints(
 		), nil
 	}
 
-	kernelFlagSymbols := KernelFlagsConfigSymbols()
+	kernelFlagSymbols := KernelFlagsConfigSymbols(opts.Srcarch)
 	static, err := generatedHeaderFamilyFootprint(
 		config,
 		scanner,
@@ -369,7 +369,7 @@ func generatedHeaderAllFootprint(
 	for _, symbol := range generatedHeaderConfigSymbols {
 		refs[symbol] = true
 	}
-	for _, symbol := range KernelFlagsConfigSymbols() {
+	for _, symbol := range KernelFlagsConfigSymbols(opts.Srcarch) {
 		refs[symbol] = true
 	}
 	if opts.Srcarch == "x86" {
