@@ -1361,6 +1361,7 @@ func sourcePredefinedSymbols(srcarch string) map[string]bool {
 		"__NetBSD__":                false,
 		"__sun":                     false,
 		"__CYGWIN__":                false,
+		"__ECOS":                    false,
 		"ACPI_APPLICATION":          false,
 		"ACPI_ASL_COMPILER":         false,
 		"ACPI_DISASSEMBLER":         false,

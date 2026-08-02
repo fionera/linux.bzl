@@ -1097,6 +1097,31 @@ func TestConfigSourceScannerContentGraphTracksAssemblyPredefine(t *testing.T) {
 	}
 }
 
+func TestConfigSourceScannerSelectsLinuxJFFS2Port(t *testing.T) {
+	root := t.TempDir()
+	mustWriteSource(t, root, "fs/jffs2/acl.c", "#include \"nodelist.h\"\n")
+	mustWriteSource(t, root, "fs/jffs2/nodelist.h", `
+#ifdef __ECOS
+#include "os-ecos.h"
+#else
+#include "os-linux.h"
+#endif
+`)
+	mustWriteSource(t, root, "fs/jffs2/os-linux.h", "#define JFFS2_LINUX_PORT 1\n")
+	scanner := newConfigSourceScanner(CompactMetadataOptions{SourceRoot: root})
+	closure, err := scanner.closureForSource("fs/jffs2/acl.c", nil)
+	if err != nil {
+		t.Fatalf("closureForSource() followed inactive eCos port: %v", err)
+	}
+	paths := sourceInputPaths(closure.sourceInputs)
+	if !slices.Contains(paths, "fs/jffs2/os-linux.h") {
+		t.Fatalf("JFFS2 source inputs = %v, want Linux port header", paths)
+	}
+	if slices.Contains(paths, "fs/jffs2/os-ecos.h") {
+		t.Fatalf("JFFS2 source inputs selected eCos port: %v", paths)
+	}
+}
+
 func TestGeneratedHeaderFootprintArm64BindsDirectInputsAndConfig(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{
