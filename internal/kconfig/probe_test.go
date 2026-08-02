@@ -282,6 +282,25 @@ func TestLinuxLLVMProbeShellHandlesWrappedPatchableEntryProbeByProfile(t *testin
 	}
 }
 
+func TestLinuxLLVMProbeShellHandlesGroupedARMStackGuardProbeByProfile(t *testing.T) {
+	const command = `{ trap "rm -rf .tmp_$$" EXIT; mkdir .tmp_$$; clang -Werror -fintegrated-as -mtp=cp15 -mstack-protector-guard=tls -mstack-protector-guard-offset=0 -c -x c /dev/null -o .tmp_$$/tmp.o; } >/dev/null 2>&1 && echo "y" || echo "n"`
+	for profile, want := range map[string]string{
+		"x86_64":  "n",
+		"aarch64": "n",
+		"armv7":   "y",
+		"riscv64": "n",
+		"ppc64le": "n",
+	} {
+		t.Run(profile, func(t *testing.T) {
+			shell := testLinuxProbeShell(t, profile)
+			got, err := shell(context.Background(), command)
+			if err != nil || got != want {
+				t.Fatalf("shell(%q) = %q, %v; want %q", command, got, err, want)
+			}
+		})
+	}
+}
+
 func TestLinuxProbeShellKeepsCompilerAndHostFactsFixed(t *testing.T) {
 	shell, err := LinuxProbeShell("x86_64", 109900, 230001)
 	if err != nil {

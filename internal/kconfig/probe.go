@@ -424,6 +424,16 @@ func (s *linuxProbeShell) knownClangOptionProbe(ctx context.Context, command str
 		supported = s.architecture != "armv7"
 		known = true
 	}
+	if key == normalizeLinuxProbeCandidate([]string{
+		"-mtp=cp15",
+		"-mstack-protector-guard=tls",
+		"-mstack-protector-guard-offset=0",
+	}) {
+		// ARM Kconfig probes these as one inseparable capability: Clang
+		// requires both the TLS guard offset and the CP15 thread-pointer mode.
+		supported = s.architecture == "armv7"
+		known = true
+	}
 	switch s.architecture {
 	case "x86_64":
 		if !known {
