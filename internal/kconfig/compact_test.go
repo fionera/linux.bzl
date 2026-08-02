@@ -3941,6 +3941,71 @@ func TestSourceCandidatesForGeneratedArchitectureObjects(t *testing.T) {
 	}
 }
 
+func TestCompactContentGraphEFILibstubLibFDTUsesVendoredIncludeRoot(t *testing.T) {
+	tree := mustParseString(t, "mainmenu \"EFI libstub libfdt closure\"\n")
+	kb, err := ParseKbuild(strings.NewReader(
+		"obj-y := drivers/firmware/efi/libstub/lib-fdt.stub.o\n",
+	), "Makefile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceRoot := t.TempDir()
+	for path, content := range map[string]string{
+		"lib/fdt.c":                            "#include <linux/libfdt_env.h>\n#include \"../scripts/dtc/libfdt/fdt.c\"\n",
+		"include/linux/libfdt_env.h":           "#define LIBFDT_ENV_H 1\n",
+		"scripts/dtc/libfdt/fdt.c":             "#include \"libfdt_env.h\"\n#include <libfdt.h>\n#include \"libfdt_internal.h\"\n",
+		"scripts/dtc/libfdt/libfdt_env.h":      "#ifndef LIBFDT_ENV_H\n#include <stddef.h>\n#endif\n",
+		"scripts/dtc/libfdt/libfdt.h":          "#include <fdt.h>\n",
+		"scripts/dtc/libfdt/fdt.h":             "#define FDT_MAGIC 1\n",
+		"scripts/dtc/libfdt/libfdt_internal.h": "#define FDT_INTERNAL 1\n",
+	} {
+		mustWriteSource(t, sourceRoot, path, content)
+	}
+	writeCompactContentGraphForcedInputs(t, sourceRoot)
+	generate := func(name string) (*CompactMetadata, CompactObjectVariant) {
+		t.Helper()
+		metadata, err := compactMetadataBatchWithOptionsForTest(t, tree, kb, []NamedConfig{{Name: name}}, CompactMetadataOptions{
+			SourceRoot:            sourceRoot,
+			Srcarch:               "riscv",
+			CompileEnvironmentABI: "riscv-efi-stub-abi-v1",
+		})
+		if err != nil {
+			t.Fatalf("CompactMetadataBatchWithOptions(%s) failed: %v", name, err)
+		}
+		config := configByName(metadata, name)
+		return metadata, variantByTarget(metadata, objectTarget(metadata, config, "drivers/firmware/efi/libstub/lib-fdt.stub.o"))
+	}
+
+	metadata, before := generate("before")
+	if before.Source != "lib/fdt.c" {
+		t.Fatalf("EFI libstub lib-fdt source = %q, want lib/fdt.c", before.Source)
+	}
+	inputs, err := metadata.expandedSourceInputGroup(before.SourceInputGroup, "EFI libstub libfdt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := sourceInputPaths(inputs)
+	for _, want := range []string{
+		"lib/fdt.c",
+		"include/linux/libfdt_env.h",
+		"scripts/dtc/libfdt/fdt.c",
+		"scripts/dtc/libfdt/libfdt_env.h",
+		"scripts/dtc/libfdt/libfdt.h",
+		"scripts/dtc/libfdt/fdt.h",
+		"scripts/dtc/libfdt/libfdt_internal.h",
+	} {
+		if !slices.Contains(paths, want) {
+			t.Errorf("EFI libstub libfdt inputs = %v, want %q", paths, want)
+		}
+	}
+
+	mustWriteSource(t, sourceRoot, "scripts/dtc/libfdt/fdt.h", "#define FDT_MAGIC 2\n")
+	_, changed := generate("changed")
+	if changed.ContentID == before.ContentID {
+		t.Fatalf("vendored fdt.h did not change EFI stub content ID %q", before.ContentID)
+	}
+}
+
 func TestCompactContentGraphRISCVPIObjectsBindPreparedSources(t *testing.T) {
 	tree := mustParseString(t, "mainmenu \"RISC-V PI object preparation\"\n")
 	sourceRoot := t.TempDir()

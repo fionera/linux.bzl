@@ -1492,6 +1492,12 @@ func (memo compactVariantMemo) variantForStack(
 				err,
 			)
 		}
+		intrinsicIncludeRoots := compactIntrinsicIncludeRoots(source)
+		includeDirs = appendUniqueStrings(includeDirs, intrinsicIncludeRoots...)
+		actionIncludeSearch.includeRoots = appendUniqueStrings(
+			actionIncludeSearch.includeRoots,
+			intrinsicIncludeRoots...,
+		)
 		forcedSources, err := forcedSourceInputs(flags, source, name)
 		if err != nil {
 			return CompactObjectVariant{}, fmt.Errorf(
@@ -1983,6 +1989,14 @@ func compactSpecialSourcesForObject(object string) compactSpecialSourceInputs {
 	default:
 		return compactSpecialSourceInputs{}
 	}
+}
+
+func compactIntrinsicIncludeRoots(source string) []string {
+	source = filepath.ToSlash(filepath.Clean(source))
+	if strings.HasPrefix(source, "lib/fdt") && strings.HasSuffix(source, ".c") {
+		return []string{"scripts/dtc/libfdt"}
+	}
+	return nil
 }
 
 func isArm64NvheObject(object string) bool {
