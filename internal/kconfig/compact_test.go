@@ -2287,6 +2287,12 @@ func TestCompactContentGraphGeneratedObjectActionFootprints(t *testing.T) {
 		"arch/arm64/kernel/vdso32-wrap.o": {
 			"arch/arm64/kernel/vdso32/vdso.so",
 		},
+		"arch/riscv/kernel/vdso/vdso.o": {
+			"arch/riscv/kernel/vdso/vdso.so",
+		},
+		"arch/riscv/kernel/compat_vdso/compat_vdso.o": {
+			"arch/riscv/kernel/compat_vdso/compat_vdso.so",
+		},
 		"arch/x86/purgatory/kexec-purgatory.o": {
 			"arch/x86/purgatory/purgatory.ro",
 		},
@@ -2303,6 +2309,103 @@ func TestCompactContentGraphGeneratedObjectActionFootprints(t *testing.T) {
 			if !slices.Contains(got.providedIncludes, input) {
 				t.Errorf("%s provided action inputs = %v, want %q", object, got.providedIncludes, input)
 			}
+		}
+	}
+}
+
+func TestCompactContentGraphRISCVVDSOWrappersBindExactGeneratedBinaries(t *testing.T) {
+	tree := mustParseString(t, "mainmenu \"RISC-V vDSO exact identity\"\n")
+	kb, err := ParseKbuild(strings.NewReader(`
+obj-y := arch/riscv/kernel/vdso/vdso.o
+obj-y += arch/riscv/kernel/compat_vdso/compat_vdso.o
+`), "Makefile")
+	if err != nil {
+		t.Fatalf("parseKbuild() failed: %v", err)
+	}
+	sourceRoot := t.TempDir()
+	for path, content := range map[string]string{
+		"arch/riscv/kernel/vdso/vdso.S":                   ".incbin __VDSO_PATH\n",
+		"arch/riscv/kernel/compat_vdso/compat_vdso.S":     "#define __VDSO_PATH \"arch/riscv/kernel/compat_vdso/compat_vdso.so\"\n#include \"../vdso/vdso.S\"\n",
+		"arch/riscv/kernel/vdso/flush_icache.S":           "nop\n",
+		"arch/riscv/kernel/vdso/getcpu.S":                 "nop\n",
+		"arch/riscv/kernel/vdso/getrandom.c":              "int getrandom;\n",
+		"arch/riscv/kernel/vdso/hwprobe.c":                "int hwprobe;\n",
+		"arch/riscv/kernel/vdso/note.S":                   "nop\n",
+		"arch/riscv/kernel/vdso/rt_sigreturn.S":           "nop\n",
+		"arch/riscv/kernel/vdso/sys_hwprobe.S":            "nop\n",
+		"arch/riscv/kernel/vdso/vdso.lds.S":               "SECTIONS { .text : { *(.text*) } }\n",
+		"arch/riscv/kernel/vdso/vgetrandom-chacha.S":      "nop\n",
+		"arch/riscv/kernel/vdso/vgettimeofday.c":          "int gettimeofday;\n",
+		"arch/riscv/kernel/compat_vdso/compat_vdso.lds.S": "SECTIONS { .text : { *(.text*) } }\n",
+		"arch/riscv/kernel/compat_vdso/flush_icache.S":    "nop\n",
+		"arch/riscv/kernel/compat_vdso/getcpu.S":          "nop\n",
+		"arch/riscv/kernel/compat_vdso/note.S":            "nop\n",
+		"arch/riscv/kernel/compat_vdso/rt_sigreturn.S":    "nop\n",
+		"lib/vdso/getrandom.c":                            "int generic_getrandom;\n",
+		"lib/vdso/gettimeofday.c":                         "int generic_gettimeofday;\n",
+	} {
+		mustWriteSource(t, sourceRoot, path, content)
+	}
+	writeCompactContentGraphForcedInputs(t, sourceRoot)
+	generate := func(name string) (*CompactMetadata, map[string]CompactObjectVariant) {
+		t.Helper()
+		metadata, err := compactMetadataBatchWithOptionsForTest(t, tree, kb, []NamedConfig{{Name: name}}, CompactMetadataOptions{
+			SourceRoot:            sourceRoot,
+			Srcarch:               "riscv",
+			CompileEnvironmentABI: "riscv-object-abi-v1",
+		})
+		if err != nil {
+			t.Fatalf("CompactMetadataBatchWithOptions(%s) failed: %v", name, err)
+		}
+		config := configByName(metadata, name)
+		return metadata, map[string]CompactObjectVariant{
+			"native": variantByTarget(metadata, objectTarget(metadata, config, "arch/riscv/kernel/vdso/vdso.o")),
+			"compat": variantByTarget(metadata, objectTarget(metadata, config, "arch/riscv/kernel/compat_vdso/compat_vdso.o")),
+		}
+	}
+
+	metadata, before := generate("before")
+	if len(metadata.GeneratedHeaderFamilies) != 1 ||
+		metadata.GeneratedHeaderFamilies[0].Name != compactGeneratedHeaderFamilyAll {
+		t.Fatalf("RISC-V vDSO generated-header families = %#v, want one all family", metadata.GeneratedHeaderFamilies)
+	}
+	family := metadata.GeneratedHeaderFamilies[0]
+	familyInputs, err := metadata.expandedSourceInputGroup(family.SourceInputGroup, "RISC-V generated headers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := sourceInputPaths(familyInputs)
+	for _, want := range []string{
+		"arch/riscv/kernel/vdso/hwprobe.c",
+		"arch/riscv/kernel/vdso/vdso.lds.S",
+		"arch/riscv/kernel/compat_vdso/compat_vdso.lds.S",
+		"lib/vdso/gettimeofday.c",
+	} {
+		if !slices.Contains(paths, want) {
+			t.Errorf("RISC-V vDSO producer inputs = %v, want %q", paths, want)
+		}
+	}
+	for name, variant := range before {
+		var environment CompactCompileEnvironment
+		for _, candidate := range metadata.CompileEnvironments {
+			if candidate.ID == variant.CompileEnvironment {
+				environment = candidate
+				break
+			}
+		}
+		if !slices.Contains(environment.GeneratedHeaderFamilies, family.ID) {
+			t.Errorf("%s RISC-V wrapper environment = %#v, want family %q", name, environment, family.ID)
+		}
+	}
+
+	mustWriteSource(t, sourceRoot, "arch/riscv/kernel/vdso/hwprobe.c", "int hwprobe_changed;\n")
+	changedMetadata, changed := generate("changed")
+	if changedMetadata.GeneratedHeaderFamilies[0].ID == family.ID {
+		t.Fatalf("RISC-V vDSO producer source did not change generated-header identity %q", family.ID)
+	}
+	for name := range before {
+		if changed[name].ContentID == before[name].ContentID {
+			t.Errorf("%s RISC-V wrapper content ID did not change with producer", name)
 		}
 	}
 }

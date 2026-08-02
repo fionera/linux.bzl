@@ -445,6 +445,38 @@ func generatedHeaderAllFootprint(
 			"arch/arm/vdso/vdsomunge.c",
 			"arch/arm/tools/syscall.tbl",
 		)
+	case "riscv":
+		for _, path := range []string{
+			"arch/riscv/kernel/vdso/flush_icache.S",
+			"arch/riscv/kernel/vdso/getcpu.S",
+			"arch/riscv/kernel/vdso/getrandom.c",
+			"arch/riscv/kernel/vdso/hwprobe.c",
+			"arch/riscv/kernel/vdso/note.S",
+			"arch/riscv/kernel/vdso/rt_sigreturn.S",
+			"arch/riscv/kernel/vdso/sys_hwprobe.S",
+			"arch/riscv/kernel/vdso/vdso.lds.S",
+			"arch/riscv/kernel/vdso/vgetrandom-chacha.S",
+			"arch/riscv/kernel/vdso/vgettimeofday.c",
+			"lib/vdso/getrandom.c",
+			"lib/vdso/gettimeofday.c",
+		} {
+			sourcePaths = append(sourcePaths, compactGeneratedHeaderSource{
+				path:    path,
+				profile: sourceScanRISCVVDSO,
+			})
+		}
+		for _, path := range []string{
+			"arch/riscv/kernel/compat_vdso/compat_vdso.lds.S",
+			"arch/riscv/kernel/compat_vdso/flush_icache.S",
+			"arch/riscv/kernel/compat_vdso/getcpu.S",
+			"arch/riscv/kernel/compat_vdso/note.S",
+			"arch/riscv/kernel/compat_vdso/rt_sigreturn.S",
+		} {
+			sourcePaths = append(sourcePaths, compactGeneratedHeaderSource{
+				path:    path,
+				profile: sourceScanRISCVCompatVDSO,
+			})
+		}
 	}
 	for _, source := range sourcePaths {
 		if _, ok := scanner.absForTreePath(source.path); !ok {

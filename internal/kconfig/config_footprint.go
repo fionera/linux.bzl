@@ -104,6 +104,8 @@ const (
 	sourceScanARMVDSO         sourceScanProfile = "arm-vdso"
 	sourceScanArm64VDSO       sourceScanProfile = "arm64-vdso"
 	sourceScanArm32CompatVDSO sourceScanProfile = "arm32-compat-vdso"
+	sourceScanRISCVVDSO       sourceScanProfile = "riscv-vdso"
+	sourceScanRISCVCompatVDSO sourceScanProfile = "riscv-compat-vdso"
 )
 
 var sourceConfigPredefinedSymbols = []struct {
@@ -637,6 +639,9 @@ func (s *configSourceScanner) closureForSourceConfigInputsSearchProfile(
 				continue
 			}
 			if !inc.literal {
+				if modeledProvidedNonliteralBinaryInclude(source, treePath, inc.spelling, provided) {
+					continue
+				}
 				err := fmt.Errorf(
 					"%s:%d: unresolved potentially-active .incbin operand %s",
 					treePath,
@@ -701,6 +706,26 @@ func (s *configSourceScanner) closureForSourceConfigInputsSearchProfile(
 	}
 	s.closure[key] = result
 	return result, nil
+}
+
+func modeledProvidedNonliteralBinaryInclude(
+	rootSource string,
+	treePath string,
+	spelling string,
+	provided map[string]bool,
+) bool {
+	if strings.TrimSpace(spelling) != ".incbin __VDSO_PATH" ||
+		treePath != "arch/riscv/kernel/vdso/vdso.S" {
+		return false
+	}
+	switch rootSource {
+	case "arch/riscv/kernel/vdso/vdso.S":
+		return provided["arch/riscv/kernel/vdso/vdso.so"]
+	case "arch/riscv/kernel/compat_vdso/compat_vdso.S":
+		return provided["arch/riscv/kernel/compat_vdso/compat_vdso.so"]
+	default:
+		return false
+	}
 }
 
 func isSourceLikeInclude(path string) bool {
@@ -1420,6 +1445,21 @@ func sourceProfilePredefinedSymbols(profile sourceScanProfile) map[string]bool {
 			"__ILP32__":                true,
 			"BUILD_VDSO":               true,
 			"DISABLE_BRANCH_PROFILING": true,
+		}
+	case sourceScanRISCVVDSO:
+		return map[string]bool{
+			"COMPAT_VDSO":              false,
+			"DISABLE_BRANCH_PROFILING": true,
+			"__ILP32__":                false,
+			"__LP64__":                 true,
+			"__riscv":                  true,
+		}
+	case sourceScanRISCVCompatVDSO:
+		return map[string]bool{
+			"COMPAT_VDSO": true,
+			"__ILP32__":   true,
+			"__LP64__":    false,
+			"__riscv":     true,
 		}
 	default:
 		return nil

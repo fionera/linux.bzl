@@ -1801,6 +1801,14 @@ func compactObjectActionFootprintForObject(object string, flags []string) compac
 		footprint.providedIncludes = []string{
 			"arch/arm64/kernel/vdso32/vdso.so",
 		}
+	case "arch/riscv/kernel/vdso/vdso.o":
+		footprint.providedIncludes = []string{
+			"arch/riscv/kernel/vdso/vdso.so",
+		}
+	case "arch/riscv/kernel/compat_vdso/compat_vdso.o":
+		footprint.providedIncludes = []string{
+			"arch/riscv/kernel/compat_vdso/compat_vdso.so",
+		}
 	case "init/version.o":
 		footprint.sourceInputs = []string{"init/version-timestamp.c"}
 	}
@@ -1835,6 +1843,8 @@ func compactObjectActionFootprintForObject(object string, flags []string) compac
 		object == "arch/arm/vdso/vdso.o" ||
 		object == "arch/arm64/kernel/vdso-wrap.o" ||
 		object == "arch/arm64/kernel/vdso32-wrap.o" ||
+		object == "arch/riscv/kernel/vdso/vdso.o" ||
+		object == "arch/riscv/kernel/compat_vdso/compat_vdso.o" ||
 		isArm64NvheObject(object) {
 		footprint.fullGeneratedHeaders = true
 	}
@@ -2408,6 +2418,8 @@ var compactGroupedSpecialObjects = map[string]bool{
 	"arch/arm/vdso/vdso.o":                        true,
 	"arch/arm64/kernel/vdso-wrap.o":               true,
 	"arch/arm64/kernel/vdso32-wrap.o":             true,
+	"arch/riscv/kernel/vdso/vdso.o":               true,
+	"arch/riscv/kernel/compat_vdso/compat_vdso.o": true,
 	"arch/x86/entry/vdso/vdso-image-64.o":         true,
 	"arch/x86/kernel/cpu/capflags.o":              true,
 	"arch/x86/lib/inat.o":                         true,
