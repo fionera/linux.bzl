@@ -9,6 +9,12 @@ bazel_dep(name = "linux.bzl", version = "0.0.1")
 bazel_dep(name = "llvm", version = "0.8.14", repo_name = "hermetic_llvm")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_go", version = "0.62.0")
+
+git_override(
+    module_name = "llvm",
+    commit = "8174a28956392774f3dd1d79f5272f1189951adb",
+    remote = "https://github.com/fionera/hermetic-llvm.git",
+)
 bazel_dep(name = "rules_qemu", version = "0.3.0")
 bazel_dep(name = "rules_rs", version = "0.0.98")
 

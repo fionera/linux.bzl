@@ -8,6 +8,12 @@ bazel_dep(name = "linux.bzl", version = "0.0.1")
 bazel_dep(name = "llvm", version = "0.8.14")
 bazel_dep(name = "rules_rs", version = "0.0.98")
 
+git_override(
+    module_name = "llvm",
+    commit = "8174a28956392774f3dd1d79f5272f1189951adb",
+    remote = "https://github.com/fionera/hermetic-llvm.git",
+)
+
 archive_override(
     module_name = "aya",
     integrity = "sha256-3+2/du1fBvpAB+65NtdWBeGE3By0d2/HfR3BstE7w7o=",

@@ -21,6 +21,12 @@ bazel_dep(name = "rules_rs", version = "0.0.98")
 
 bazel_dep(name = "tar.bzl", version = "0.9.0", dev_dependency = True)
 
+git_override(
+    module_name = "llvm",
+    commit = "8174a28956392774f3dd1d79f5272f1189951adb",
+    remote = "https://github.com/fionera/hermetic-llvm.git",
+)
+
 linux_probe_tools = use_extension("//internal:linux_probe_tools_extension.bzl", "linux_probe_tools")
 use_repo(linux_probe_tools, "linux_bzl_probe_llvm")
 
