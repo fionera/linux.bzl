@@ -106,6 +106,8 @@ const (
 	sourceScanArm32CompatVDSO sourceScanProfile = "arm32-compat-vdso"
 	sourceScanRISCVVDSO       sourceScanProfile = "riscv-vdso"
 	sourceScanRISCVCompatVDSO sourceScanProfile = "riscv-compat-vdso"
+	sourceScanPPC64VDSO       sourceScanProfile = "ppc64-vdso"
+	sourceScanPPC32VDSO       sourceScanProfile = "ppc32-vdso"
 )
 
 var sourceConfigPredefinedSymbols = []struct {
@@ -1465,6 +1467,28 @@ func sourceProfilePredefinedSymbols(profile sourceScanProfile) map[string]bool {
 			"__ILP32__":   true,
 			"__LP64__":    false,
 			"__riscv":     true,
+		}
+	case sourceScanPPC64VDSO:
+		return map[string]bool{
+			"BUILD_VDSO":               true,
+			"DISABLE_BRANCH_PROFILING": true,
+			"__ILP32__":                false,
+			"__LP64__":                 true,
+			"__VDSO32__":               false,
+			"__VDSO64__":               true,
+			"__powerpc__":              true,
+			"__powerpc64__":            true,
+		}
+	case sourceScanPPC32VDSO:
+		return map[string]bool{
+			"BUILD_VDSO":               true,
+			"DISABLE_BRANCH_PROFILING": true,
+			"__ILP32__":                true,
+			"__LP64__":                 false,
+			"__VDSO32__":               true,
+			"__VDSO64__":               false,
+			"__powerpc__":              true,
+			"__powerpc64__":            false,
 		}
 	default:
 		return nil

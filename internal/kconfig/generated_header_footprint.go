@@ -477,6 +477,37 @@ func generatedHeaderAllFootprint(
 				profile: sourceScanRISCVCompatVDSO,
 			})
 		}
+	case "powerpc":
+		shared := []string{
+			"arch/powerpc/kernel/vdso/cacheflush.S",
+			"arch/powerpc/kernel/vdso/datapage.S",
+			"arch/powerpc/kernel/vdso/getcpu.S",
+			"arch/powerpc/kernel/vdso/getrandom.S",
+			"arch/powerpc/kernel/vdso/gettimeofday.S",
+			"arch/powerpc/kernel/vdso/note.S",
+			"arch/powerpc/kernel/vdso/vgetrandom-chacha.S",
+			"arch/powerpc/kernel/vdso/vgetrandom.c",
+			"arch/powerpc/kernel/vdso/vgettimeofday.c",
+			"lib/vdso/getrandom.c",
+			"lib/vdso/gettimeofday.c",
+		}
+		for _, profile := range []sourceScanProfile{sourceScanPPC64VDSO, sourceScanPPC32VDSO} {
+			for _, path := range shared {
+				sourcePaths = append(sourcePaths, compactGeneratedHeaderSource{
+					path:    path,
+					profile: profile,
+				})
+			}
+		}
+		for _, source := range []compactGeneratedHeaderSource{
+			{path: "arch/powerpc/kernel/vdso/sigtramp64.S", profile: sourceScanPPC64VDSO},
+			{path: "arch/powerpc/kernel/vdso/vdso64.lds.S", profile: sourceScanPPC64VDSO},
+			{path: "arch/powerpc/kernel/vdso/sigtramp32.S", profile: sourceScanPPC32VDSO},
+			{path: "arch/powerpc/kernel/vdso/vdso32.lds.S", profile: sourceScanPPC32VDSO},
+			{path: "arch/powerpc/lib/crtsavres.S", profile: sourceScanPPC32VDSO},
+		} {
+			sourcePaths = append(sourcePaths, source)
+		}
 	}
 	for _, source := range sourcePaths {
 		if _, ok := scanner.absForTreePath(source.path); !ok {

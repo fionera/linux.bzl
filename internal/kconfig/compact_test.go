@@ -2293,6 +2293,12 @@ func TestCompactContentGraphGeneratedObjectActionFootprints(t *testing.T) {
 		"arch/riscv/kernel/compat_vdso/compat_vdso.o": {
 			"arch/riscv/kernel/compat_vdso/compat_vdso.so",
 		},
+		"arch/powerpc/kernel/vdso64_wrapper.o": {
+			"arch/powerpc/kernel/vdso/vdso64.so.dbg",
+		},
+		"arch/powerpc/kernel/vdso32_wrapper.o": {
+			"arch/powerpc/kernel/vdso/vdso32.so.dbg",
+		},
 		"arch/x86/purgatory/kexec-purgatory.o": {
 			"arch/x86/purgatory/purgatory.ro",
 		},
@@ -2309,6 +2315,103 @@ func TestCompactContentGraphGeneratedObjectActionFootprints(t *testing.T) {
 			if !slices.Contains(got.providedIncludes, input) {
 				t.Errorf("%s provided action inputs = %v, want %q", object, got.providedIncludes, input)
 			}
+		}
+	}
+}
+
+func TestCompactContentGraphPowerPCVDSOWrappersBindDebugImages(t *testing.T) {
+	tree := mustParseString(t, "mainmenu \"PowerPC vDSO debug-image identity\"\n")
+	kb, err := ParseKbuild(strings.NewReader(`
+obj-y := arch/powerpc/kernel/vdso64_wrapper.o
+obj-y += arch/powerpc/kernel/vdso32_wrapper.o
+`), "Makefile")
+	if err != nil {
+		t.Fatalf("parseKbuild() failed: %v", err)
+	}
+	sourceRoot := t.TempDir()
+	for path, content := range map[string]string{
+		"arch/powerpc/kernel/vdso64_wrapper.S":         ".incbin \"arch/powerpc/kernel/vdso/vdso64.so.dbg\"\n",
+		"arch/powerpc/kernel/vdso32_wrapper.S":         ".incbin \"arch/powerpc/kernel/vdso/vdso32.so.dbg\"\n",
+		"arch/powerpc/kernel/vdso/cacheflush.S":        "nop\n",
+		"arch/powerpc/kernel/vdso/datapage.S":          "nop\n",
+		"arch/powerpc/kernel/vdso/getcpu.S":            "nop\n",
+		"arch/powerpc/kernel/vdso/getrandom.S":         "nop\n",
+		"arch/powerpc/kernel/vdso/gettimeofday.S":      "nop\n",
+		"arch/powerpc/kernel/vdso/note.S":              "nop\n",
+		"arch/powerpc/kernel/vdso/vgetrandom-chacha.S": "nop\n",
+		"arch/powerpc/kernel/vdso/vgetrandom.c":        "int ppc_vgetrandom;\n",
+		"arch/powerpc/kernel/vdso/vgettimeofday.c":     "int ppc_vgettimeofday_v1;\n",
+		"arch/powerpc/kernel/vdso/sigtramp64.S":        "nop\n",
+		"arch/powerpc/kernel/vdso/vdso64.lds.S":        "SECTIONS { .text : { *(.text*) } }\n",
+		"arch/powerpc/kernel/vdso/sigtramp32.S":        "nop\n",
+		"arch/powerpc/kernel/vdso/vdso32.lds.S":        "SECTIONS { .text : { *(.text*) } }\n",
+		"arch/powerpc/lib/crtsavres.S":                 "nop\n",
+		"lib/vdso/getrandom.c":                         "int generic_getrandom;\n",
+		"lib/vdso/gettimeofday.c":                      "int generic_gettimeofday;\n",
+	} {
+		mustWriteSource(t, sourceRoot, path, content)
+	}
+	writeCompactContentGraphForcedInputs(t, sourceRoot)
+	generate := func(name string) (*CompactMetadata, map[string]CompactObjectVariant) {
+		t.Helper()
+		metadata, err := compactMetadataBatchWithOptionsForTest(t, tree, kb, []NamedConfig{{Name: name}}, CompactMetadataOptions{
+			SourceRoot:            sourceRoot,
+			Srcarch:               "powerpc",
+			CompileEnvironmentABI: "powerpc-vdso-abi-v1",
+		})
+		if err != nil {
+			t.Fatalf("CompactMetadataBatchWithOptions(%s) failed: %v", name, err)
+		}
+		config := configByName(metadata, name)
+		return metadata, map[string]CompactObjectVariant{
+			"64": variantByTarget(metadata, objectTarget(metadata, config, "arch/powerpc/kernel/vdso64_wrapper.o")),
+			"32": variantByTarget(metadata, objectTarget(metadata, config, "arch/powerpc/kernel/vdso32_wrapper.o")),
+		}
+	}
+
+	metadata, before := generate("before")
+	if len(metadata.GeneratedHeaderFamilies) != 1 ||
+		metadata.GeneratedHeaderFamilies[0].Name != compactGeneratedHeaderFamilyAll {
+		t.Fatalf("PowerPC vDSO generated-header families = %#v, want one all family", metadata.GeneratedHeaderFamilies)
+	}
+	family := metadata.GeneratedHeaderFamilies[0]
+	inputs, err := metadata.expandedSourceInputGroup(family.SourceInputGroup, "PowerPC vDSO producers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := sourceInputPaths(inputs)
+	for _, want := range []string{
+		"arch/powerpc/kernel/vdso/vgettimeofday.c",
+		"arch/powerpc/kernel/vdso/vdso64.lds.S",
+		"arch/powerpc/kernel/vdso/vdso32.lds.S",
+		"arch/powerpc/lib/crtsavres.S",
+		"lib/vdso/gettimeofday.c",
+	} {
+		if !slices.Contains(paths, want) {
+			t.Errorf("PowerPC vDSO producer inputs = %v, want %q", paths, want)
+		}
+	}
+	for bits, variant := range before {
+		var environment CompactCompileEnvironment
+		for _, candidate := range metadata.CompileEnvironments {
+			if candidate.ID == variant.CompileEnvironment {
+				environment = candidate
+				break
+			}
+		}
+		if !slices.Contains(environment.GeneratedHeaderFamilies, family.ID) {
+			t.Errorf("PowerPC %s-bit wrapper does not bind generated family %q", bits, family.ID)
+		}
+	}
+
+	mustWriteSource(t, sourceRoot, "arch/powerpc/kernel/vdso/vgettimeofday.c", "int ppc_vgettimeofday_v2;\n")
+	changedMetadata, changed := generate("changed")
+	if changedMetadata.GeneratedHeaderFamilies[0].ID == family.ID {
+		t.Fatalf("PowerPC vDSO producer source did not change generated family %q", family.ID)
+	}
+	for bits := range before {
+		if changed[bits].ContentID == before[bits].ContentID {
+			t.Errorf("PowerPC %s-bit wrapper content ID did not change with producer", bits)
 		}
 	}
 }
