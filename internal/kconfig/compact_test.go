@@ -3526,7 +3526,7 @@ func TestCompactSourceBuildReadyRejectsUnknownMakeRefs(t *testing.T) {
 	}
 }
 
-func TestSourceCandidatesForGeneratedArm64Objects(t *testing.T) {
+func TestSourceCandidatesForGeneratedArchitectureObjects(t *testing.T) {
 	tests := map[string][]string{
 		"arch/arm64/kernel/pi/lib-fdt.pi.o": {
 			"lib/fdt.c",
@@ -3547,6 +3547,18 @@ func TestSourceCandidatesForGeneratedArm64Objects(t *testing.T) {
 		"lib/crypto/arm64/sha512-core.o": {
 			"lib/crypto/arm64/sha2-armv8.pl",
 		},
+		"lib/crypto/arm/poly1305-core.o": {
+			"lib/crypto/arm/poly1305-armv4.pl",
+		},
+		"lib/crypto/arm/sha256-core.o": {
+			"lib/crypto/arm/sha256-armv4.pl",
+		},
+		"lib/crypto/arm/sha512-core.o": {
+			"lib/crypto/arm/sha512-armv4.pl",
+		},
+		"lib/crypto/riscv/poly1305-core.o": {
+			"lib/crypto/riscv/poly1305-riscv.pl",
+		},
 	}
 	for object, wantCandidates := range tests {
 		got := sourceCandidatesForObject(object)
@@ -3555,6 +3567,48 @@ func TestSourceCandidatesForGeneratedArm64Objects(t *testing.T) {
 				t.Fatalf("sourceCandidatesForObject(%q) = %v, want candidate %q", object, got, want)
 			}
 		}
+	}
+}
+
+func TestCompactContentGraphGeneratedARMPerlasmSourceIdentity(t *testing.T) {
+	tree := mustParseString(t, "mainmenu \"ARM perlasm identity\"\n")
+	kb, err := ParseKbuild(strings.NewReader("obj-y := lib/crypto/arm/sha256-core.o\n"), "Makefile")
+	if err != nil {
+		t.Fatalf("ParseKbuild() failed: %v", err)
+	}
+	sourceRoot := t.TempDir()
+	const generator = "lib/crypto/arm/sha256-armv4.pl"
+	mustWriteSource(t, sourceRoot, generator, "# ARM SHA-256 generator v1\n")
+	writeCompactContentGraphForcedInputs(t, sourceRoot)
+	generate := func() (*CompactMetadata, CompactObjectVariant) {
+		t.Helper()
+		metadata, err := compactMetadataBatchWithOptionsForTest(t, tree, kb, []NamedConfig{{Name: "arm"}}, CompactMetadataOptions{
+			SourceRoot:            sourceRoot,
+			Srcarch:               "arm",
+			CompileEnvironmentABI: "arm-object-abi-v1",
+		})
+		if err != nil {
+			t.Fatalf("CompactMetadataBatchWithOptions() failed: %v", err)
+		}
+		config := configByName(metadata, "arm")
+		return metadata, variantByTarget(metadata, objectTarget(metadata, config, "lib/crypto/arm/sha256-core.o"))
+	}
+
+	metadata, before := generate()
+	if before.Source != generator {
+		t.Fatalf("ARM SHA-256 source = %q, want %q", before.Source, generator)
+	}
+	inputs, err := metadata.expandedSourceInputGroup(before.SourceInputGroup, "ARM SHA-256")
+	if err != nil {
+		t.Fatalf("expand ARM SHA-256 source inputs: %v", err)
+	}
+	if got := sourceInputByPath(inputs, generator).Path; got == "" {
+		t.Fatalf("ARM SHA-256 source inputs = %v, want %q", inputs, generator)
+	}
+	mustWriteSource(t, sourceRoot, generator, "# ARM SHA-256 generator v2\n")
+	_, changed := generate()
+	if changed.ContentID == before.ContentID {
+		t.Fatalf("ARM SHA-256 generator change did not change content ID %q", before.ContentID)
 	}
 }
 

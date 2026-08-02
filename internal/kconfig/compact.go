@@ -2314,6 +2314,14 @@ func sourceCandidatesForObject(object string) []string {
 		out = append(out, "lib/crypto/arm64/poly1305-armv8.pl")
 	case "lib/crypto/arm64/sha256-core.o", "lib/crypto/arm64/sha512-core.o":
 		out = append(out, "lib/crypto/arm64/sha2-armv8.pl")
+	case "lib/crypto/arm/poly1305-core.o":
+		out = append(out, "lib/crypto/arm/poly1305-armv4.pl")
+	case "lib/crypto/arm/sha256-core.o":
+		out = append(out, "lib/crypto/arm/sha256-armv4.pl")
+	case "lib/crypto/arm/sha512-core.o":
+		out = append(out, "lib/crypto/arm/sha512-armv4.pl")
+	case "lib/crypto/riscv/poly1305-core.o":
+		out = append(out, "lib/crypto/riscv/poly1305-riscv.pl")
 	case "lib/crypto/x86/poly1305-x86_64-cryptogams.o":
 		out = append(out, "lib/crypto/x86/poly1305-x86_64-cryptogams.pl")
 	}
@@ -2416,9 +2424,13 @@ var compactGroupedSpecialObjects = map[string]bool{
 	"lib/crc/crc64-main.o":                        true,
 	"lib/crc32.o":                                 true,
 	"lib/crc64.o":                                 true,
+	"lib/crypto/arm/poly1305-core.o":              true,
+	"lib/crypto/arm/sha256-core.o":                true,
+	"lib/crypto/arm/sha512-core.o":                true,
 	"lib/crypto/arm64/poly1305-core.o":            true,
 	"lib/crypto/arm64/sha256-core.o":              true,
 	"lib/crypto/arm64/sha512-core.o":              true,
+	"lib/crypto/riscv/poly1305-core.o":            true,
 	"lib/crypto/x86/poly1305-x86_64-cryptogams.o": true,
 	"lib/oid_registry.o":                          true,
 	"usr/initramfs_data.o":                        true,
