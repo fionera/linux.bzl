@@ -3689,6 +3689,15 @@ func TestSourceCandidatesForGeneratedArchitectureObjects(t *testing.T) {
 			"lib/fdt.c",
 			"arch/arm64/kernel/pi/fdt.c",
 		},
+		"arch/riscv/kernel/pi/ctype.pi.o": {
+			"lib/ctype.c",
+		},
+		"arch/riscv/kernel/pi/string.pi.o": {
+			"lib/string.c",
+		},
+		"arch/riscv/kernel/pi/lib-fdt.pi.o": {
+			"lib/fdt.c",
+		},
 		"drivers/of/empty_root.dtb.o": {
 			"drivers/of/empty_root.dts",
 		},
@@ -3724,6 +3733,92 @@ func TestSourceCandidatesForGeneratedArchitectureObjects(t *testing.T) {
 				t.Fatalf("sourceCandidatesForObject(%q) = %v, want candidate %q", object, got, want)
 			}
 		}
+	}
+}
+
+func TestCompactContentGraphRISCVPIObjectsBindPreparedSources(t *testing.T) {
+	tree := mustParseString(t, "mainmenu \"RISC-V PI object preparation\"\n")
+	sourceRoot := t.TempDir()
+	for path, content := range map[string]string{
+		"Kbuild": "obj-y += arch/riscv/kernel/pi/\n",
+		"arch/riscv/kernel/pi/Makefile": `KBUILD_CFLAGS := -fpie -Os -I$(srctree)/scripts/dtc/libfdt
+CFLAGS_ctype.o += -D__NO_FORTIFY
+obj-y := ctype.pi.o string.pi.o lib-fdt.pi.o
+`,
+		"lib/ctype.c":  "int kernel_ctype_v1;\n",
+		"lib/string.c": "int kernel_string;\n",
+		"lib/fdt.c":    "int kernel_fdt;\n",
+	} {
+		mustWriteSource(t, sourceRoot, path, content)
+	}
+	writeCompactContentGraphForcedInputs(t, sourceRoot)
+	kb, err := ParseKbuildDirectoryTree(filepath.Join(sourceRoot, "Kbuild"), KbuildOptions{
+		RootDir:   sourceRoot,
+		Variables: map[string]string{"SRCARCH": "riscv"},
+	})
+	if err != nil {
+		t.Fatalf("ParseKbuildDirectoryTree() failed: %v", err)
+	}
+	generate := func(name string) (*CompactMetadata, map[string]CompactObjectVariant) {
+		t.Helper()
+		metadata, err := compactMetadataBatchWithOptionsForTest(t, tree, kb, []NamedConfig{{Name: name}}, CompactMetadataOptions{
+			SourceRoot:            sourceRoot,
+			Srcarch:               "riscv",
+			CompileEnvironmentABI: "riscv-pi-abi-v1",
+		})
+		if err != nil {
+			t.Fatalf("CompactMetadataBatchWithOptions(%s) failed: %v", name, err)
+		}
+		config := configByName(metadata, name)
+		variants := map[string]CompactObjectVariant{}
+		for _, object := range []string{
+			"arch/riscv/kernel/pi/ctype.pi.o",
+			"arch/riscv/kernel/pi/string.pi.o",
+			"arch/riscv/kernel/pi/lib-fdt.pi.o",
+		} {
+			variants[object] = variantByTarget(metadata, objectTarget(metadata, config, object))
+		}
+		return metadata, variants
+	}
+
+	metadata, before := generate("before")
+	wantSources := map[string]string{
+		"arch/riscv/kernel/pi/ctype.pi.o":   "lib/ctype.c",
+		"arch/riscv/kernel/pi/string.pi.o":  "lib/string.c",
+		"arch/riscv/kernel/pi/lib-fdt.pi.o": "lib/fdt.c",
+	}
+	for object, wantSource := range wantSources {
+		variant := before[object]
+		if variant.Source != wantSource {
+			t.Errorf("%s source = %q, want %q", object, variant.Source, wantSource)
+		}
+		inputs, err := metadata.expandedSourceInputGroup(variant.SourceInputGroup, object)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(sourceInputPaths(inputs), wantSource) {
+			t.Errorf("%s inputs = %v, want %q", object, sourceInputPaths(inputs), wantSource)
+		}
+		if !slices.Contains(variant.Flags, "-fpie") {
+			t.Errorf("%s flags = %v, want PI compilation", object, variant.Flags)
+		}
+	}
+	ctypeObject := "arch/riscv/kernel/pi/ctype.pi.o"
+	if !slices.Contains(before[ctypeObject].Flags, "-D__NO_FORTIFY") {
+		t.Fatalf("ctype PI flags = %v, want compile-intermediate CFLAGS_ctype.o", before[ctypeObject].Flags)
+	}
+	if slices.Contains(before["arch/riscv/kernel/pi/string.pi.o"].Flags, "-D__NO_FORTIFY") {
+		t.Fatalf("string PI inherited ctype-only flags: %v", before["arch/riscv/kernel/pi/string.pi.o"].Flags)
+	}
+
+	mustWriteSource(t, sourceRoot, "lib/ctype.c", "int kernel_ctype_v2;\n")
+	_, changed := generate("changed")
+	if changed[ctypeObject].ContentID == before[ctypeObject].ContentID {
+		t.Fatalf("RISC-V ctype PI source digest did not change content ID %q", before[ctypeObject].ContentID)
+	}
+	stringObject := "arch/riscv/kernel/pi/string.pi.o"
+	if changed[stringObject].ContentID != before[stringObject].ContentID {
+		t.Fatalf("ctype source change perturbed unrelated string PI object")
 	}
 }
 

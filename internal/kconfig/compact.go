@@ -934,7 +934,7 @@ func (kb *KbuildFile) resolvedObjects(config *ResolvedConfig) resolvedKbuildObje
 
 	for _, object := range byObject {
 		for _, flag := range kb.Flags {
-			if flag.Scope == "object" && flag.Object != object.object {
+			if flag.Scope == "object" && !kbuildObjectFlagMatches(flag.Object, object.object) {
 				continue
 			}
 			if flag.Scope == "global" && !globalFlagAppliesToObject(flag, object) {
@@ -957,7 +957,7 @@ func (kb *KbuildFile) resolvedObjects(config *ResolvedConfig) resolvedKbuildObje
 			}
 		}
 		for _, flag := range kb.RemoveFlags {
-			if flag.Scope == "object" && flag.Object != object.object {
+			if flag.Scope == "object" && !kbuildObjectFlagMatches(flag.Object, object.object) {
 				continue
 			}
 			if flag.Scope == "global" && !globalFlagAppliesToObject(flag, object) {
@@ -997,6 +997,10 @@ func (kb *KbuildFile) resolvedObjects(config *ResolvedConfig) resolvedKbuildObje
 		}
 	}
 	return out
+}
+
+func kbuildObjectFlagMatches(flagObject, object string) bool {
+	return flagObject == object || flagObject == kbuildCompileObjectName(object)
 }
 
 func kbuildObjtoolSettings(kb *KbuildFile, object *resolvedKbuildObject) (disabled, force bool, args []string) {
@@ -2308,6 +2312,10 @@ func sourceCandidatesForObject(object string) []string {
 		out = append(out, base+".dtso")
 	}
 	switch object {
+	case "arch/riscv/kernel/pi/ctype.pi.o":
+		out = append(out, "lib/ctype.c")
+	case "arch/riscv/kernel/pi/string.pi.o":
+		out = append(out, "lib/string.c")
 	case "arch/x86/entry/vdso/vdso-image-64.o":
 		out = append(out, "arch/x86/entry/vdso/vdso2c.c")
 	case "arch/x86/kernel/cpu/capflags.o":
