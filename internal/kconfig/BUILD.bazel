@@ -41,6 +41,7 @@ go_test(
         "config_footprint_test.go",
         "config_test.go",
         "kbuild_test.go",
+        "kernelflags_symbols_test.go",
         "parser_test.go",
         "preprocess_test.go",
         "probe_test.go",

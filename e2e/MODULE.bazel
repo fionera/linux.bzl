@@ -15,6 +15,7 @@ git_override(
     commit = "d088194981c8d9775cc7dc3d81d9ea08f9ece90b",
     remote = "https://github.com/fionera/hermetic-llvm.git",
 )
+
 bazel_dep(name = "rules_qemu", version = "0.3.0")
 bazel_dep(name = "rules_rs", version = "0.0.98")
 
