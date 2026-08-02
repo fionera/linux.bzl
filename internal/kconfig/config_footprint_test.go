@@ -1122,6 +1122,32 @@ func TestConfigSourceScannerSelectsLinuxJFFS2Port(t *testing.T) {
 	}
 }
 
+func TestConfigSourceScannerSelectsKernelZlibDeflateMode(t *testing.T) {
+	root := t.TempDir()
+	mustWriteSource(t, root, "lib/zlib_deflate/deftree.c", `
+#include "defutil.h"
+#ifdef DEBUG_ZLIB
+#include <ctype.h>
+#endif
+int kernel_deftree;
+`)
+	mustWriteSource(t, root, "lib/zlib_deflate/defutil.h", "#define KERNEL_ZLIB_DEFLATE 1\n")
+	scanner := newConfigSourceScanner(CompactMetadataOptions{SourceRoot: root})
+	closure, err := scanner.closureForSource("lib/zlib_deflate/deftree.c", nil)
+	if err != nil {
+		t.Fatalf("closureForSource() followed inactive userspace zlib debug branch: %v", err)
+	}
+	paths := sourceInputPaths(closure.sourceInputs)
+	if !slices.Contains(paths, "lib/zlib_deflate/defutil.h") {
+		t.Fatalf("zlib deflate inputs = %v, want kernel defutil.h", paths)
+	}
+	for _, path := range paths {
+		if filepath.Base(path) == "ctype.h" {
+			t.Fatalf("zlib deflate inputs selected userspace debug header: %v", paths)
+		}
+	}
+}
+
 func TestGeneratedHeaderFootprintArm64BindsDirectInputsAndConfig(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{

@@ -1394,6 +1394,7 @@ func sourcePredefinedSymbols(srcarch string) map[string]bool {
 		"ACPI_LIBRARY":              false,
 		"ACPI_USE_SYSTEM_CLIBRARY":  true,
 		"ACPI_USE_STANDARD_HEADERS": false,
+		"DEBUG_ZLIB":                false,
 		"MODULE":                    false,
 	}
 	switch srcarch {
