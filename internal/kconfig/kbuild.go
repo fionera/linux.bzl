@@ -1669,6 +1669,9 @@ func (p *kbuildParser) expandVariable(name, original string, depth int) (string,
 	}
 	variable, ok := p.lookupVariable(name)
 	if !ok {
+		if p.knownEmptyConditionalVariable(name) {
+			return "", true, nil
+		}
 		return "", false, nil
 	}
 	if !variable.recursive {
@@ -1684,6 +1687,23 @@ func (p *kbuildParser) expandVariable(name, original string, depth int) (string,
 		return "", false, err
 	}
 	return expanded, true, nil
+}
+
+func (p *kbuildParser) knownEmptyConditionalVariable(name string) bool {
+	if len(name) < 3 || name[len(name)-2] != '-' || !strings.Contains("ymn", name[len(name)-1:]) {
+		return false
+	}
+	prefix := name[:len(name)-1]
+	for _, state := range []string{"", "y", "m", "n"} {
+		candidate := prefix + state
+		if candidate == name {
+			continue
+		}
+		if _, ok := p.lookupVariable(candidate); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *kbuildParser) lookupRawVar(name string) (string, bool) {

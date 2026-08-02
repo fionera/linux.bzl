@@ -827,6 +827,52 @@ KBUILD_CFLAGS += $(call cc-option,-mno-sched-epilog)
 	}
 }
 
+func TestParseKbuildExpandsConfigurationIndexedFlagFamilies(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		thumb2 string
+		want   []string
+	}{
+		{name: "disabled", thumb2: "", want: nil},
+		{name: "enabled", thumb2: "y", want: []string{"-U__thumb2__", "-D__thumb2__=1"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "Makefile")
+			if err := os.WriteFile(path, []byte(`aflags-thumb2-$(CONFIG_THUMB2_KERNEL) := -U__thumb2__ -D__thumb2__=1
+obj-y += arm/sha256-core.o other.o
+AFLAGS_arm/sha256-core.o += $(aflags-thumb2-y)
+AFLAGS_other.o += $(unrelated-y)
+`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			kb, err := ParseKbuildFileWithOptions(path, KbuildOptions{
+				Variables: map[string]string{
+					"CONFIG_THUMB2_KERNEL": test.thumb2,
+					"SRCARCH":              "arm",
+				},
+			})
+			if err != nil {
+				t.Fatalf("ParseKbuildFileWithOptions() failed: %v", err)
+			}
+			var got, unrelated []string
+			for _, flag := range kb.Flags {
+				switch flag.Object {
+				case "arm/sha256-core.o":
+					got = append(got, flag.Flags...)
+				case "other.o":
+					unrelated = append(unrelated, flag.Flags...)
+				}
+			}
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("Thumb-2 flags = %#v, want %#v", got, test.want)
+			}
+			if !reflect.DeepEqual(unrelated, []string{"$(unrelated-y)"}) {
+				t.Fatalf("unrelated unknown family was silently erased: %#v", unrelated)
+			}
+		})
+	}
+}
+
 func TestParseKbuildExpandsAdditionalPureMakeFunctions(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "existing.o"), nil, 0o644); err != nil {
