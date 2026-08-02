@@ -55,6 +55,27 @@ func testRealToolProbeWithNames(t *testing.T, profile, clangName, lldName string
 	return probe, counter
 }
 
+func TestProbeToolModeIsExecutable(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		goos string
+		mode os.FileMode
+		want bool
+	}{
+		{name: "windows regular file", goos: "windows", mode: 0o666, want: true},
+		{name: "windows directory", goos: "windows", mode: os.ModeDir | 0o777, want: false},
+		{name: "linux executable", goos: "linux", mode: 0o755, want: true},
+		{name: "linux regular file", goos: "linux", mode: 0o644, want: false},
+		{name: "darwin executable", goos: "darwin", mode: 0o755, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := probeToolModeIsExecutable(test.goos, test.mode); got != test.want {
+				t.Errorf("probeToolModeIsExecutable(%q, %v) = %v, want %v", test.goos, test.mode, got, test.want)
+			}
+		})
+	}
+}
+
 func TestLinuxProbeShellWithToolsAcceptsWindowsSuffixedToolPaths(t *testing.T) {
 	probe, _ := testRealToolProbeWithNames(t, "armv7", "clang.exe", "ld.lld.exe")
 	shell, err := LinuxProbeShellWithTools(probe, LinuxProbeDefaultRustcVersion, LinuxProbeDefaultRustcLLVMVersion)

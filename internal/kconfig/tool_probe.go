@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -77,7 +78,7 @@ func NewLinuxToolProbe(opts LinuxToolProbeOptions) (*LinuxToolProbe, error) {
 		if statErr != nil {
 			return nil, fmt.Errorf("stat probe %s %q: %w", name, path, statErr)
 		}
-		if info.IsDir() || info.Mode()&0o111 == 0 {
+		if !probeToolModeIsExecutable(runtime.GOOS, info.Mode()) {
 			return nil, fmt.Errorf("probe %s %q is not an executable file", name, path)
 		}
 	}
@@ -124,6 +125,16 @@ func NewLinuxToolProbe(opts LinuxToolProbeOptions) (*LinuxToolProbe, error) {
 		return nil, fmt.Errorf("probe ld.lld version is %d, want pinned LLVM %d", p.lldCode, linuxProbeLDVersion)
 	}
 	return p, nil
+}
+
+func probeToolModeIsExecutable(goos string, mode os.FileMode) bool {
+	if mode.IsDir() {
+		return false
+	}
+	// Windows does not represent executable files with Unix permission bits:
+	// os.Stat reports ordinary .exe files as 0666. exec.Command performs the
+	// authoritative executable-file validation when the probe is launched.
+	return goos == "windows" || mode&0o111 != 0
 }
 
 func (p *LinuxToolProbe) Identity() string { return p.identity }
