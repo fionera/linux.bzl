@@ -1,0 +1,26 @@
+module(
+    name = "linux_image_extension_reserved_repository_name",
+    version = "1.0.0",
+)
+
+bazel_dep(name = "linux.bzl", version = "0.0.1")
+bazel_dep(name = "llvm", version = "0.8.14")
+
+local_path_override(
+    module_name = "linux.bzl",
+    path = "../linux_bzl",
+)
+
+local_path_override(
+    module_name = "llvm",
+    path = "../llvm",
+)
+
+linux_images = use_extension("@linux.bzl//:extensions.bzl", "linux_images")
+linux_images.image(
+    name = "linux_bzl_probe_llvm",
+    config = "//:base.config",
+    platform = "@llvm//platforms:linux_x86_64",
+    source = "//:Kconfig",
+)
+use_repo(linux_images, "linux_bzl_probe_llvm")

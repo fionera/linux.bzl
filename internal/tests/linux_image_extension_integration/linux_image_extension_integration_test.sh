@@ -11,6 +11,7 @@ readonly SUCCESS_OUTPUT="${TEST_TMPDIR}/success-output"
 readonly REMOVED_ATTR_OUTPUT="${TEST_TMPDIR}/removed-attr-output"
 readonly NON_ROOT_TAGS_OUTPUT="${TEST_TMPDIR}/non-root-tags-output"
 readonly REPOSITORY_NAME_COLLISION_OUTPUT="${TEST_TMPDIR}/repository-name-collision-output"
+readonly RESERVED_REPOSITORY_NAME_OUTPUT="${TEST_TMPDIR}/reserved-repository-name-output"
 
 fail() {
   echo "linux_image_extension_integration_test: $*" >&2
@@ -73,6 +74,7 @@ cleanup() {
   shutdown_bazel "${REMOVED_ATTR_OUTPUT}"
   shutdown_bazel "${NON_ROOT_TAGS_OUTPUT}"
   shutdown_bazel "${REPOSITORY_NAME_COLLISION_OUTPUT}"
+  shutdown_bazel "${RESERVED_REPOSITORY_NAME_OUTPUT}"
 }
 
 expect_failure() {
@@ -203,3 +205,10 @@ expect_failure \
   "generate conflicting repository" \
   query \
   '@fixture_kernel//:image'
+
+expect_failure \
+  "${WORK_ROOT}/reserved_repository_name" \
+  "${RESERVED_REPOSITORY_NAME_OUTPUT}" \
+  "generates reserved repository \"linux_bzl_probe_llvm\"" \
+  query \
+  '@linux_bzl_probe_llvm//:image'
