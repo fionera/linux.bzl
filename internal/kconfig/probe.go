@@ -535,10 +535,10 @@ func parseLinuxSourceProbe(command string) (string, []string, error) {
 	} else {
 		return "", nil, fmt.Errorf("unsupported Linux source producer %q", left)
 	}
-	if len(quoted) < 2 || (quoted[0] != '\'' && quoted[0] != '"') || quoted[len(quoted)-1] != quoted[0] {
-		return "", nil, fmt.Errorf("unsupported Linux source quoting %q", quoted)
+	source, err := unquoteLinuxProbeSource(quoted)
+	if err != nil {
+		return "", nil, err
 	}
-	source := quoted[1 : len(quoted)-1]
 	fields := strings.Fields(strings.TrimSpace(right))
 	compiler := -1
 	for i, field := range fields {
@@ -566,6 +566,48 @@ func parseLinuxSourceProbe(command string) (string, []string, error) {
 		candidate = append(candidate, field)
 	}
 	return source, candidate, nil
+}
+
+func unquoteLinuxProbeSource(quoted string) (string, error) {
+	if len(quoted) < 2 || (quoted[0] != '\'' && quoted[0] != '"') || quoted[len(quoted)-1] != quoted[0] {
+		return "", fmt.Errorf("unsupported Linux source quoting %q", quoted)
+	}
+	body := quoted[1 : len(quoted)-1]
+	if quoted[0] == '\'' {
+		if strings.ContainsRune(body, '\'') {
+			return "", fmt.Errorf("unsupported Linux source quoting %q", quoted)
+		}
+		return body, nil
+	}
+
+	var out strings.Builder
+	out.Grow(len(body))
+	for i := 0; i < len(body); i++ {
+		switch body[i] {
+		case '"':
+			return "", fmt.Errorf("unsupported Linux source quoting %q", quoted)
+		case '\\':
+			if i+1 == len(body) {
+				return "", fmt.Errorf("unsupported Linux source quoting %q", quoted)
+			}
+			next := body[i+1]
+			switch next {
+			case '$', '`', '"', '\\':
+				out.WriteByte(next)
+				i++
+			case '\n':
+				i++
+			default:
+				// Within double quotes, the shell preserves backslashes before
+				// characters other than $, `, ", \\, and a newline. printf %b
+				// interprets those remaining escapes in the following step.
+				out.WriteByte('\\')
+			}
+		default:
+			out.WriteByte(body[i])
+		}
+	}
+	return out.String(), nil
 }
 
 func isLinuxProbeCompilerToken(field string) bool {

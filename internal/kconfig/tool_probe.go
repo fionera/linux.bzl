@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -189,6 +190,13 @@ func (p *LinuxToolProbe) SupportsOption(ctx context.Context, kind string, candid
 	execContext, err := sanitizeProbeContext(kind, probeContext)
 	if err != nil {
 		return false, fmt.Errorf("invalid %s context: %w", kind, err)
+	}
+	// Native CPU selection depends on the repository worker's processor, which
+	// is not represented in Bazel's repository or action cache keys. Keep the
+	// measured probe aligned with the cache-safe fixed probe policy instead of
+	// allowing the host running module resolution to change generated metadata.
+	if slices.Contains(candidate, "-march=native") {
+		return false, nil
 	}
 	key := strings.Join([]string{
 		p.identity, p.profile.Name, p.profile.TargetTriple, kind,

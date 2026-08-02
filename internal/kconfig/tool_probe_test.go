@@ -173,6 +173,26 @@ func TestLinuxToolProbeRunsAndCachesRealCompilerProbe(t *testing.T) {
 	}
 }
 
+func TestLinuxProbeShellWithToolsRejectsHostNativeMarchWithoutExecution(t *testing.T) {
+	probe, counter := testRealToolProbe(t, "x86_64")
+	shell, err := LinuxProbeShellWithTools(probe, LinuxProbeDefaultRustcVersion, LinuxProbeDefaultRustcLLVMVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := `{ clang -Werror -march=native -c -x c /dev/null -o /dev/null; } >/dev/null 2>&1 && echo "y" || echo "n"`
+	got, err := shell(context.Background(), command)
+	if err != nil || got != "n" {
+		t.Fatalf("shell(%q) = %q, %v; want n, nil", command, got, err)
+	}
+	data, readErr := os.ReadFile(counter)
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatal(readErr)
+	}
+	if len(data) != 0 {
+		t.Fatalf("host-native probe executed the compiler %d times, want zero", len(data))
+	}
+}
+
 func TestLinuxToolProbeMeasuresSafeKbuildAssemblerSource(t *testing.T) {
 	dir := t.TempDir()
 	clang := filepath.Join(dir, "clang")
@@ -312,7 +332,7 @@ fi
 	}
 	writeProbeTool(t, lld, "LLD version 22.1.8", filepath.Join(dir, "count"))
 	probe, err := NewLinuxToolProbe(LinuxToolProbeOptions{
-		Profile: "aarch64", Architecture: "arm64", TargetTriple: "aarch64-linux-gnu",
+		Profile: "x86_64", Architecture: "x86", TargetTriple: "x86_64-linux-gnu",
 		ClangPath: clang, LLDPath: lld, TempDir: dir,
 	})
 	if err != nil {
@@ -322,19 +342,36 @@ fi
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := `1:\n.inst 0\n.rept . - 1b\n\nnop\n.endr\n`
-	command := `{ printf "%b\n" "` + source + `" | clang -fintegrated-as -Wa,--fatal-warnings -c -x assembler-with-cpp -o /dev/null -; } >/dev/null 2>&1 && echo "y" || echo "n"`
-	got, err := shell(context.Background(), command)
-	if err != nil || got != "y" {
-		t.Fatalf("shell() = %q, %v", got, err)
-	}
-	data, err := os.ReadFile(captured)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "1:\n.inst 0\n.rept . - 1b\n\nnop\n.endr\n\n"
-	if string(data) != want {
-		t.Fatalf("assembler probe source = %q, want %q", data, want)
+	for _, test := range []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			name:   "printf escapes",
+			source: `1:\n.inst 0\n.rept . - 1b\n\nnop\n.endr\n`,
+			want:   "1:\n.inst 0\n.rept . - 1b\n\nnop\n.endr\n\n",
+		},
+		{
+			name:   "double quoted dollar",
+			source: `vpclmulqdq \$0x10,%ymm0,%ymm1,%ymm2`,
+			want:   "vpclmulqdq $0x10,%ymm0,%ymm1,%ymm2\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			command := `{ printf "%b\n" "` + test.source + `" | clang -fintegrated-as -Wa,--fatal-warnings -c -x assembler-with-cpp -o /dev/null -; } >/dev/null 2>&1 && echo "y" || echo "n"`
+			got, err := shell(context.Background(), command)
+			if err != nil || got != "y" {
+				t.Fatalf("shell() = %q, %v", got, err)
+			}
+			data, err := os.ReadFile(captured)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != test.want {
+				t.Fatalf("assembler probe source = %q, want %q", data, test.want)
+			}
+		})
 	}
 }
 
@@ -455,6 +492,20 @@ func TestParseLinuxSourceProbeAcceptsKconfigCompilerVariables(t *testing.T) {
 		if got, want := strings.Join(candidate, " "), "-fintegrated-as -Werror"; got != want {
 			t.Fatalf("candidate = %q, want %q", got, want)
 		}
+	}
+}
+
+func TestParseLinuxSourceProbeUnquotesVPCLMULImmediate(t *testing.T) {
+	command := `printf "%b\n" "vpclmulqdq \$0x10,%ymm0,%ymm1,%ymm2" | clang -fintegrated-as -Wa,--fatal-warnings -c -x assembler-with-cpp -o /dev/null -`
+	source, candidate, err := parseLinuxSourceProbe(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `vpclmulqdq $0x10,%ymm0,%ymm1,%ymm2`; source != want {
+		t.Fatalf("source = %q, want %q", source, want)
+	}
+	if got, want := strings.Join(candidate, " "), "-fintegrated-as -Wa,--fatal-warnings"; got != want {
+		t.Fatalf("candidate = %q, want %q", got, want)
 	}
 }
 
