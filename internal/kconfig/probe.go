@@ -410,6 +410,13 @@ func (s *linuxProbeShell) knownClangOptionProbe(ctx context.Context, command str
 		supported = s.architecture != "aarch64"
 		known = true
 	}
+	if key == normalizeLinuxProbeCandidate([]string{"-m64"}) {
+		// Kconfig.include also probes the 64-bit compatibility switch on every
+		// architecture. Pinned Clang accepts it for each supported 64-bit
+		// profile, but rejects it for the 32-bit ARM profile.
+		supported = s.architecture != "armv7"
+		known = true
+	}
 	switch s.architecture {
 	case "x86_64":
 		if !known {

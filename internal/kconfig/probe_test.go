@@ -244,6 +244,25 @@ func TestLinuxLLVMProbeShellHandlesCanonicalM32PreprocessorProbeByProfile(t *tes
 	}
 }
 
+func TestLinuxLLVMProbeShellHandlesCanonicalM64PreprocessorProbeByProfile(t *testing.T) {
+	const command = `{ clang -Werror -m64 -E -x c /dev/null -o /dev/null; } >/dev/null 2>&1 && echo "y" || echo "n"`
+	for profile, want := range map[string]string{
+		"x86_64":  "y",
+		"aarch64": "y",
+		"armv7":   "n",
+		"riscv64": "y",
+		"ppc64le": "y",
+	} {
+		t.Run(profile, func(t *testing.T) {
+			shell := testLinuxProbeShell(t, profile)
+			got, err := shell(context.Background(), command)
+			if err != nil || got != want {
+				t.Fatalf("shell(%q) = %q, %v; want %q", command, got, err, want)
+			}
+		})
+	}
+}
+
 func TestLinuxProbeShellKeepsCompilerAndHostFactsFixed(t *testing.T) {
 	shell, err := LinuxProbeShell("x86_64", 109900, 230001)
 	if err != nil {
