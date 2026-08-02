@@ -417,6 +417,13 @@ func (s *linuxProbeShell) knownClangOptionProbe(ctx context.Context, command str
 		supported = s.architecture != "armv7"
 		known = true
 	}
+	if key == normalizeLinuxProbeCandidate([]string{"-fpatchable-function-entry=8"}) {
+		// RISC-V Kconfig probes this exact entry padding. Pinned Clang's
+		// driver supports patchable entries for every supported profile here
+		// except 32-bit ARM.
+		supported = s.architecture != "armv7"
+		known = true
+	}
 	switch s.architecture {
 	case "x86_64":
 		if !known {

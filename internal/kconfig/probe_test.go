@@ -263,6 +263,25 @@ func TestLinuxLLVMProbeShellHandlesCanonicalM64PreprocessorProbeByProfile(t *tes
 	}
 }
 
+func TestLinuxLLVMProbeShellHandlesWrappedPatchableEntryProbeByProfile(t *testing.T) {
+	const command = `{ trap "rm -rf .tmp_$$" EXIT; mkdir .tmp_$$; clang -Werror -fintegrated-as -fpatchable-function-entry=8 -c -x c /dev/null -o .tmp_$$/tmp.o; } >/dev/null 2>&1 && echo "y" || echo "n"`
+	for profile, want := range map[string]string{
+		"x86_64":  "y",
+		"aarch64": "y",
+		"armv7":   "n",
+		"riscv64": "y",
+		"ppc64le": "y",
+	} {
+		t.Run(profile, func(t *testing.T) {
+			shell := testLinuxProbeShell(t, profile)
+			got, err := shell(context.Background(), command)
+			if err != nil || got != want {
+				t.Fatalf("shell(%q) = %q, %v; want %q", command, got, err, want)
+			}
+		})
+	}
+}
+
 func TestLinuxProbeShellKeepsCompilerAndHostFactsFixed(t *testing.T) {
 	shell, err := LinuxProbeShell("x86_64", 109900, 230001)
 	if err != nil {
