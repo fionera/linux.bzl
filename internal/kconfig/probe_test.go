@@ -329,6 +329,25 @@ func TestLinuxLLVMProbeShellSupportsExactRISCVKconfigCandidates(t *testing.T) {
 	}
 }
 
+func TestLinuxLLVMProbeShellSupportsExactPPC64LEKconfigCandidates(t *testing.T) {
+	shell := testLinuxProbeShell(t, "ppc64le")
+	for _, candidate := range []string{
+		"-mabi=elfv2",
+		"-mcpu=power10 -mprefixed",
+		"-mcpu=power10 -mpcrel",
+		"-fpatchable-function-entry=2",
+		"-mtune=power10",
+		"-mtune=power9",
+		"-mtune=power8",
+	} {
+		command := `{ clang -Werror -fintegrated-as ` + candidate + ` -c -x c /dev/null -o .tmp.o; } >/dev/null 2>&1 && echo "y" || echo "n"`
+		got, err := shell(context.Background(), command)
+		if err != nil || got != "y" {
+			t.Errorf("shell(%q) = %q, %v; want y", command, got, err)
+		}
+	}
+}
+
 func TestLinuxProbeShellKeepsCompilerAndHostFactsFixed(t *testing.T) {
 	shell, err := LinuxProbeShell("x86_64", 109900, 230001)
 	if err != nil {

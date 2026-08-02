@@ -447,6 +447,10 @@ func (s *linuxProbeShell) knownClangOptionProbe(ctx context.Context, command str
 		if !known {
 			supported, known = linuxLLVMKconfigCCOptionsRISCV64[key]
 		}
+	case "ppc64le":
+		if !known {
+			supported, known = linuxLLVMKconfigCCOptionsPPC64LE[key]
+		}
 	}
 	if !known {
 		supported, known = linuxLLVMKconfigCCOptionsCommon[key]
@@ -773,6 +777,16 @@ var linuxLLVMKconfigCCOptionsRISCV64 = map[string]bool{
 	normalizeLinuxProbeCandidate([]string{"-mabi=lp64", "-march=rv64ima_zbkb"}):                                                                 true,
 	normalizeLinuxProbeCandidate([]string{"-mabi=ilp32", "-march=rv32ima_zbkb"}):                                                                true,
 	normalizeLinuxProbeCandidate([]string{"-mstack-protector-guard=tls", "-mstack-protector-guard-reg=tp", "-mstack-protector-guard-offset=0"}): true,
+}
+
+var linuxLLVMKconfigCCOptionsPPC64LE = map[string]bool{
+	normalizeLinuxProbeCandidate([]string{"-mabi=elfv2"}):                  true,
+	normalizeLinuxProbeCandidate([]string{"-mcpu=power10", "-mprefixed"}):  true,
+	normalizeLinuxProbeCandidate([]string{"-mcpu=power10", "-mpcrel"}):     true,
+	normalizeLinuxProbeCandidate([]string{"-fpatchable-function-entry=2"}): true,
+	normalizeLinuxProbeCandidate([]string{"-mtune=power10"}):               true,
+	normalizeLinuxProbeCandidate([]string{"-mtune=power9"}):                true,
+	normalizeLinuxProbeCandidate([]string{"-mtune=power8"}):                true,
 }
 
 var linuxLLVMKconfigLDOptions = map[string]bool{
