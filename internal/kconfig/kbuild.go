@@ -1481,7 +1481,10 @@ func (p *kbuildParser) linuxLLVMKbuildProbeSupportsOption(
 		)
 	}
 	key := normalizeLinuxProbeCandidate(candidate)
-	context := p.linuxLLVMKbuildProbeContext(kind)
+	context, err := p.linuxLLVMKbuildProbeContext(kind)
+	if err != nil {
+		return false, fmt.Errorf("%s: expand Kbuild %s probe context: %w", p.currentPos, kind, err)
+	}
 	if p.probeOption != nil {
 		return p.probeOption(kind, slices.Clone(candidate), slices.Clone(context))
 	}
@@ -1532,17 +1535,21 @@ func linuxLLVMKbuildSupportsMacroPrefixMap(candidate string) bool {
 		len(candidate) > len(prefix)+len(suffix)
 }
 
-func (p *kbuildParser) linuxLLVMKbuildProbeContext(kind string) []string {
+func (p *kbuildParser) linuxLLVMKbuildProbeContext(kind string) ([]string, error) {
 	var names []string
 	context := []string{}
 	switch kind {
 	case "cc_option":
 		context = append(context, "-Werror")
 		names = append(names, "KBUILD_CPPFLAGS")
-		if value, ok := p.lookupRawVar("cc_stack_align4"); ok {
-			context = append(context, kbuildFields(value)...)
+		if _, ok := p.lookupVariable("cc_stack_align4"); ok {
+			value, _, err := p.expandVariable("cc_stack_align4", "$(cc_stack_align4)", 0)
+			if err != nil {
+				return nil, err
+			}
+			context = append(context, concreteKbuildFlags(kbuildFields(value))...)
 		}
-		if _, ok := p.lookupRawVar("CC_OPTION_CFLAGS"); ok {
+		if _, ok := p.lookupVariable("CC_OPTION_CFLAGS"); ok {
 			names = append(names, "CC_OPTION_CFLAGS")
 		} else {
 			names = append(names, "KBUILD_CFLAGS")
@@ -1554,13 +1561,20 @@ func (p *kbuildParser) linuxLLVMKbuildProbeContext(kind string) []string {
 		names = append(names, "KBUILD_LDFLAGS")
 	}
 	for _, name := range names {
-		value, ok := p.lookupRawVar(name)
+		value, ok, err := p.expandVariable(name, "$("+name+")", 0)
+		if err != nil {
+			return nil, err
+		}
 		if !ok {
 			continue
 		}
-		context = append(context, kbuildFields(value)...)
+		// A directory Kbuild is parsed independently from the top-level make
+		// invocation. Recursive/self references can therefore remain unknown,
+		// but they are make expressions rather than compiler argv. Preserve all
+		// concrete expanded words and never pass raw make syntax to the tool.
+		context = append(context, concreteKbuildFlags(kbuildFields(value))...)
 	}
-	return context
+	return context, nil
 }
 
 func (p *kbuildParser) unsupportedLinuxLLVMKbuildProbe(

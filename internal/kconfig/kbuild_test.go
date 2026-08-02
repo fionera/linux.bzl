@@ -712,6 +712,62 @@ KBUILD_CFLAGS += $(call cc-option,-mno-fdpic)
 	}
 }
 
+func TestMeasuredKbuildProbeContextExpandsMakeExpressions(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		content          string
+		finalCandidate   string
+		wantFinalContext []string
+	}{
+		{
+			name: "riscv subst self reference",
+			content: `CC_FLAGS_FTRACE := -pg
+KBUILD_CFLAGS := $(subst $(CC_FLAGS_FTRACE),,$(KBUILD_CFLAGS)) -fpie $(call cc-option,-mbranch-protection=none)
+KBUILD_CFLAGS += $(call cc-option,-fno-addrsig)
+`,
+			finalCandidate:   "-fno-addrsig",
+			wantFinalContext: []string{"-Werror", "-fpie", "-mbranch-protection=none"},
+		},
+		{
+			name: "powerpc recursive calls",
+			content: `KBUILD_CFLAGS = $(call cc-option,-mno-sched-epilog)
+CC_OPTION_CFLAGS = $(KBUILD_CFLAGS) $(call cc-option,-mno-string)
+ccflags-y += $(call cc-option,-fno-stack-protector)
+`,
+			finalCandidate:   "-fno-stack-protector",
+			wantFinalContext: []string{"-Werror", "-mno-sched-epilog", "-mno-string"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "Makefile")
+			if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var finalContext []string
+			_, err := ParseKbuildFileWithOptions(path, KbuildOptions{
+				Variables: map[string]string{"SRCARCH": "riscv"},
+				ProbeOption: func(kind string, candidate, context []string) (bool, error) {
+					for _, arg := range context {
+						if containsMakeReference(arg) {
+							t.Fatalf("probe %q retained make expression in context %q", candidate, context)
+						}
+					}
+					if len(candidate) == 1 && candidate[0] == tc.finalCandidate {
+						finalContext = append([]string(nil), context...)
+					}
+					return true, nil
+				},
+			})
+			if err != nil {
+				t.Fatalf("ParseKbuildFileWithOptions() failed: %v", err)
+			}
+			if !reflect.DeepEqual(finalContext, tc.wantFinalContext) {
+				t.Fatalf("final probe context = %#v, want %#v", finalContext, tc.wantFinalContext)
+			}
+		})
+	}
+}
+
 func TestParseKbuildExpandsAdditionalPureMakeFunctions(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "existing.o"), nil, 0o644); err != nil {
