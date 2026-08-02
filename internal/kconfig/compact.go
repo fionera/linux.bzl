@@ -2296,7 +2296,9 @@ func kbuildFlagLanguageMatchesSource(language string, source string) bool {
 	switch filepath.Ext(source) {
 	case ".c":
 		return language == "c"
-	case ".S", ".s":
+	case ".S", ".s", ".dts", ".dtso":
+		// Kbuild turns DTB object inputs into generated assembly wrappers
+		// before compiling them into .dtb.o or .dtbo.o objects.
 		return language == "asm"
 	default:
 		return true

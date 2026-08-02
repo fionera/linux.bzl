@@ -3537,6 +3537,45 @@ func TestCompactContentGraphSpecialSourceManifestExcludesHostTools(t *testing.T)
 	}
 }
 
+func TestCompactGeneratedDTBWrappersUseAssemblyFlags(t *testing.T) {
+	for _, tc := range []struct {
+		object string
+		source string
+	}{
+		{object: "drivers/of/base.dtb.o", source: "drivers/of/base.dts"},
+		{object: "drivers/of/overlay.dtbo.o", source: "drivers/of/overlay.dtso"},
+	} {
+		t.Run(filepath.Ext(tc.source), func(t *testing.T) {
+			object := resolvedKbuildObject{
+				object: tc.object,
+				mode:   "y",
+				flags: []resolvedKbuildFlag{
+					{language: "any", values: []string{"-DANY"}},
+					{language: "c", values: []string{"-DC_ONLY"}},
+					{language: "asm", values: []string{"-DASM_ONLY"}},
+				},
+				footprint: map[string]bool{},
+			}
+			variant := object.variant(
+				&ResolvedConfig{},
+				tc.source,
+				nil,
+				nil,
+				nil,
+				nil,
+				nil,
+				"",
+				nil,
+				"linux.bzl/compact-v6/test",
+				nil,
+			)
+			if got, want := variant.Flags, []string{"-DANY", "-DASM_ONLY"}; !reflect.DeepEqual(got, want) {
+				t.Fatalf("%s flags = %v, want %v", tc.source, got, want)
+			}
+		})
+	}
+}
+
 func TestNormalizeSourceRootFlagsWindowsPaths(t *testing.T) {
 	const sourceRoot = `D:\_bazel\external\+linux_source_repository+linux_6_18_39`
 	kb, err := parseKbuild(strings.NewReader(`
