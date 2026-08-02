@@ -39,6 +39,21 @@ def _generator_variable_args_test_impl(ctx):
 
 generator_variable_args_test = unittest.make(_generator_variable_args_test_impl)
 
+def _target_profiles_test_impl(ctx):
+    env = unittest.begin(ctx)
+    want = {
+        "aarch64": ("arm64", "arm64", "aarch64", "aarch64-linux-gnu"),
+        "armv7": ("arm", "arm", "armv7l", "arm-linux-gnueabi"),
+        "ppc64le": ("powerpc", "powerpc", "ppc64le", "powerpc64le-linux-gnu"),
+        "riscv64": ("riscv", "riscv", "riscv64", "riscv64-linux-gnu"),
+        "x86_64": ("x86", "x86", "x86_64", "x86_64-linux-gnu"),
+    }
+    for profile, identity in want.items():
+        asserts.equals(env, identity, repositories_test_helpers.target_profile_identity(profile))
+    return unittest.end(env)
+
+target_profiles_test = unittest.make(_target_profiles_test_impl)
+
 def _graph_configs_args_test_impl(ctx):
     env = unittest.begin(ctx)
     asserts.equals(
@@ -90,6 +105,15 @@ def _metadata_without_key(metadata, collection, key):
 def _metadata_key_validation_test_impl(ctx):
     env = unittest.begin(ctx)
     metadata = {
+        "schema": "compact-v7-adaptive-content-graph",
+        "target": {
+            "linux_arch": "x86",
+            "probe_identity": "sha256-test",
+            "profile": "x86_64",
+            "srcarch": "x86",
+            "target_triple": "x86_64-linux-gnu",
+            "uts_machine": "x86_64",
+        },
         "action_groups": [{
             "id": "",
             "object_targets": [],
@@ -170,6 +194,15 @@ def _metadata_key_validation_test_impl(ctx):
             "metadata with retired field %r should be rejected, got %r" % (key, error),
         )
     sparse = {
+        "schema": "compact-v7-adaptive-content-graph",
+        "target": {
+            "linux_arch": "x86",
+            "probe_identity": "sha256-test",
+            "profile": "x86_64",
+            "srcarch": "x86",
+            "target_triple": "x86_64-linux-gnu",
+            "uts_machine": "x86_64",
+        },
         "action_groups": [{
             "id": "",
             "object_targets": [],
@@ -569,7 +602,7 @@ def compile_environment_abi_test(name):
     _compile_environment_abi_subject(
         name = subject,
         actual = "unexpected-abi",
-        expected = "linux.bzl/compact-v6/clang-baseline-22.1.8/x86/x86",
+        expected = "linux.bzl/compact-v7/clang-22.1.8/x86_64/x86/x86/probe-sha256-test",
         tags = ["manual"],
     )
     _compile_environment_abi_failure_test(

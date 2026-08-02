@@ -137,6 +137,9 @@ type KbuildOptions struct {
 	SourceRoots     map[string]string
 	Variables       map[string]string
 	MaxIncludeDepth int
+	// ProbeOption, when set, answers cc-option/as-option/ld-option using the
+	// selected real toolchain. The parser never invokes a command shell.
+	ProbeOption func(kind string, candidate, probeContext []string) (bool, error)
 }
 
 func ParseKbuildFile(path string) (*KbuildFile, error) {
@@ -149,7 +152,7 @@ func ParseKbuildFileWithOptions(path string, opts KbuildOptions) (*KbuildFile, e
 		return nil, err
 	}
 	defer file.Close()
-	return parseKbuild(file, path, opts.Variables, filepath.Dir(path))
+	return parseKbuildWithOptions(file, path, opts, filepath.Dir(path))
 }
 
 func parseKbuildFile(path string, vars map[string]string) (*KbuildFile, error) {
@@ -186,6 +189,7 @@ func parseKbuildFileTree(path string, opts KbuildOptions, variableOverrides map[
 		parsing:           map[string]bool{},
 	}
 	parser := newKbuildParserWithOverrides(opts.Variables, variableOverrides, "")
+	parser.probeOption = opts.ProbeOption
 	parser.includeFunc = func(includes []KbuildInclude) error {
 		return treeParser.parseIncludes(parser, includes)
 	}
@@ -217,7 +221,12 @@ func ParseKbuild(r io.Reader, filename string) (*KbuildFile, error) {
 }
 
 func parseKbuild(r io.Reader, filename string, vars map[string]string, baseDir string) (*KbuildFile, error) {
-	parser := newKbuildParser(vars, baseDir)
+	return parseKbuildWithOptions(r, filename, KbuildOptions{Variables: vars}, baseDir)
+}
+
+func parseKbuildWithOptions(r io.Reader, filename string, opts KbuildOptions, baseDir string) (*KbuildFile, error) {
+	parser := newKbuildParser(opts.Variables, baseDir)
+	parser.probeOption = opts.ProbeOption
 	if err := parser.parseReader(r, filename); err != nil {
 		return nil, err
 	}
@@ -349,6 +358,7 @@ type kbuildParser struct {
 	order        int
 	includeFunc  func([]KbuildInclude) error
 	includeDepth int
+	probeOption  func(kind string, candidate, probeContext []string) (bool, error)
 }
 
 type kbuildVariable struct {
@@ -1456,6 +1466,9 @@ func (p *kbuildParser) linuxLLVMKbuildProbeSupportsOption(
 	}
 	key := normalizeLinuxProbeCandidate(candidate)
 	context := p.linuxLLVMKbuildProbeContext(kind)
+	if p.probeOption != nil {
+		return p.probeOption(kind, slices.Clone(candidate), slices.Clone(context))
+	}
 
 	if kind == "cc_option" && len(candidate) == 1 && linuxLLVMKbuildSupportsMacroPrefixMap(candidate[0]) {
 		return true, nil

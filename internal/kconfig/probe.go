@@ -51,10 +51,34 @@ func LinuxProbeShell(
 	}).run, nil
 }
 
+// LinuxProbeShellWithTools uses actual integrity-pinned LLVM tools for
+// capability and version probes while retaining the small set of pure shell
+// expressions needed by Kconfig.include. Probe commands are parsed and mapped
+// to direct argv execution; no command shell is used.
+func LinuxProbeShellWithTools(
+	probe *LinuxToolProbe,
+	rustcVersion int,
+	rustcLLVMVersion int,
+) (func(context.Context, string) (string, error), error) {
+	if probe == nil {
+		return nil, fmt.Errorf("Linux tool probe is required")
+	}
+	if rustcVersion <= 0 || rustcLLVMVersion <= 0 {
+		return nil, fmt.Errorf("invalid Linux Rust compiler identity")
+	}
+	return (&linuxProbeShell{
+		architecture:     probe.profile.Name,
+		rustcVersion:     rustcVersion,
+		rustcLLVMVersion: rustcLLVMVersion,
+		toolProbe:        probe,
+	}).run, nil
+}
+
 type linuxProbeShell struct {
 	architecture     string
 	rustcVersion     int
 	rustcLLVMVersion int
+	toolProbe        *LinuxToolProbe
 }
 
 func (s *linuxProbeShell) run(ctx context.Context, command string) (string, error) {
@@ -63,7 +87,7 @@ func (s *linuxProbeShell) run(ctx context.Context, command string) (string, erro
 	}
 	command = strings.TrimSpace(command)
 	if match := ifSuccessPattern.FindStringSubmatch(command); match != nil {
-		success, err := s.commandSucceeds(match[1])
+		success, err := s.commandSucceeds(ctx, match[1])
 		if err != nil {
 			return "", err
 		}
@@ -78,12 +102,21 @@ func (s *linuxProbeShell) run(ctx context.Context, command string) (string, erro
 func (s *linuxProbeShell) output(command string) (string, error) {
 	switch {
 	case isKnownLinuxProbeScript(command, "cc-version.sh", "clang"):
+		if s.toolProbe != nil {
+			return fmt.Sprintf("Clang %d", s.toolProbe.clangCode), nil
+		}
 		return fmt.Sprintf("%s %d", linuxProbeCCName, linuxProbeCCVersion), nil
 	case isLinuxProbeToolVersionCommand(command, "clang"):
+		if s.toolProbe != nil {
+			return s.toolProbe.clangVersion, nil
+		}
 		return linuxProbeCCVersionText, nil
 	case isKnownLinuxProbeScript(command, "as-version.sh", "clang", "-fintegrated-as"):
 		return fmt.Sprintf("%s %d", linuxProbeASName, linuxProbeASVersion), nil
 	case isKnownLinuxProbeScript(command, "ld-version.sh", "ld.lld"):
+		if s.toolProbe != nil {
+			return fmt.Sprintf("LLD %d", s.toolProbe.lldCode), nil
+		}
 		return fmt.Sprintf("%s %d", linuxProbeLDName, linuxProbeLDVersion), nil
 	case isKnownLinuxProbeScript(command, "pahole-version.sh", "pahole"):
 		return strconv.Itoa(linuxProbePaholeVersion), nil
@@ -104,7 +137,7 @@ func (s *linuxProbeShell) output(command string) (string, error) {
 	}
 }
 
-func (s *linuxProbeShell) commandSucceeds(command string) (bool, error) {
+func (s *linuxProbeShell) commandSucceeds(ctx context.Context, command string) (bool, error) {
 	command = strings.TrimSpace(command)
 	switch {
 	case strings.HasPrefix(command, "command -v "):
@@ -131,16 +164,16 @@ func (s *linuxProbeShell) commandSucceeds(command string) (bool, error) {
 	case command == `python3 -c "import lxml"`:
 		return false, nil
 	}
-	if supported, recognized := s.knownClangSourceProbe(command); recognized {
-		return supported, nil
+	if supported, recognized, err := s.knownClangSourceProbe(ctx, command); recognized || err != nil {
+		return supported, err
 	}
-	if supported, recognized := s.knownClangAssemblerProbe(command); recognized {
-		return supported, nil
+	if supported, recognized, err := s.knownClangAssemblerProbe(ctx, command); recognized || err != nil {
+		return supported, err
 	}
-	if supported, recognized := s.knownLLDOptionProbe(command); recognized {
-		return supported, nil
+	if supported, recognized, err := s.knownLLDOptionProbe(ctx, command); recognized || err != nil {
+		return supported, err
 	}
-	if supported, recognized, err := s.knownClangOptionProbe(command); recognized || err != nil {
+	if supported, recognized, err := s.knownClangOptionProbe(ctx, command); recognized || err != nil {
 		return supported, err
 	}
 	return false, s.unsupportedCommand(command)
@@ -277,7 +310,7 @@ func isKnownRELRProbe(command string) bool {
 	return isLinuxProbeScriptPath(path, "tools-support-relr.sh")
 }
 
-func (s *linuxProbeShell) knownClangOptionProbe(command string) (bool, bool, error) {
+func (s *linuxProbeShell) knownClangOptionProbe(ctx context.Context, command string) (bool, bool, error) {
 	fields := strings.Fields(command)
 	compiler := -1
 	for i, field := range fields {
@@ -315,6 +348,10 @@ func (s *linuxProbeShell) knownClangOptionProbe(command string) (bool, bool, err
 		return false, false, nil
 	}
 	key := normalizeLinuxProbeCandidate(candidate)
+	if s.toolProbe != nil {
+		supported, err := s.toolProbe.SupportsOption(ctx, "cc_option", candidate, nil)
+		return supported, true, err
+	}
 	var supported, known bool
 	switch s.architecture {
 	case "x86_64":
@@ -340,41 +377,105 @@ func normalizeLinuxProbeCandidate(argv []string) string {
 	return strings.Join(argv, "\x00")
 }
 
-func (s *linuxProbeShell) knownClangSourceProbe(command string) (bool, bool) {
+func (s *linuxProbeShell) knownClangSourceProbe(ctx context.Context, command string) (bool, bool, error) {
 	if !strings.Contains(command, "|") ||
 		!strings.Contains(command, " -x c - ") ||
 		(!strings.Contains(command, " -c ") && !strings.Contains(command, " -S ")) {
-		return false, false
+		return false, false, nil
 	}
 	for _, fragment := range linuxLLVMKnownCSourceFragments {
 		if strings.Contains(command, fragment) {
-			return true, true
+			if s.toolProbe == nil {
+				return true, true, nil
+			}
+			source, candidate, err := parseLinuxSourceProbe(command)
+			if err != nil {
+				return false, true, err
+			}
+			supported, err := s.toolProbe.SupportsSource(ctx, "c", candidate, source)
+			return supported, true, err
 		}
 	}
-	return false, false
+	return false, false, nil
 }
 
-func (s *linuxProbeShell) knownClangAssemblerProbe(command string) (bool, bool) {
+func (s *linuxProbeShell) knownClangAssemblerProbe(ctx context.Context, command string) (bool, bool, error) {
 	if !strings.HasPrefix(command, `printf "%b\n" `) ||
 		!strings.Contains(command, " -x assembler-with-cpp ") {
-		return false, false
+		return false, false, nil
 	}
 	for _, fragment := range linuxLLVMKnownAssemblerFragments {
 		if strings.Contains(command, fragment) {
-			return true, true
+			if s.toolProbe == nil {
+				return true, true, nil
+			}
+			source, candidate, err := parseLinuxSourceProbe(command)
+			if err != nil {
+				return false, true, err
+			}
+			supported, err := s.toolProbe.SupportsSource(ctx, "assembler-with-cpp", candidate, source)
+			return supported, true, err
 		}
 	}
-	return false, false
+	return false, false, nil
 }
 
-func (s *linuxProbeShell) knownLLDOptionProbe(command string) (bool, bool) {
+func parseLinuxSourceProbe(command string) (string, []string, error) {
+	left, right, ok := strings.Cut(command, "|")
+	if !ok {
+		return "", nil, fmt.Errorf("unsupported Linux source probe %q", command)
+	}
+	left = strings.TrimSpace(left)
+	var quoted string
+	if strings.HasPrefix(left, "echo ") {
+		quoted = strings.TrimSpace(strings.TrimPrefix(left, "echo "))
+	} else if strings.HasPrefix(left, `printf "%b\n" `) {
+		quoted = strings.TrimSpace(strings.TrimPrefix(left, `printf "%b\n" `))
+	} else {
+		return "", nil, fmt.Errorf("unsupported Linux source producer %q", left)
+	}
+	if len(quoted) < 2 || (quoted[0] != '\'' && quoted[0] != '"') || quoted[len(quoted)-1] != quoted[0] {
+		return "", nil, fmt.Errorf("unsupported Linux source quoting %q", quoted)
+	}
+	source := quoted[1 : len(quoted)-1]
+	fields := strings.Fields(strings.TrimSpace(right))
+	compiler := -1
+	for i, field := range fields {
+		if linuxProbeToolName(field) == "clang" {
+			compiler = i
+			break
+		}
+	}
+	if compiler < 0 {
+		return "", nil, fmt.Errorf("Linux source probe has no clang invocation")
+	}
+	var candidate []string
+	for i := compiler + 1; i < len(fields); i++ {
+		field := strings.TrimSuffix(fields[i], ";")
+		switch field {
+		case "-c", "-S", "-", "/dev/null":
+			continue
+		case "-x", "-o":
+			i++
+			continue
+		}
+		candidate = append(candidate, field)
+	}
+	return source, candidate, nil
+}
+
+func (s *linuxProbeShell) knownLLDOptionProbe(ctx context.Context, command string) (bool, bool, error) {
 	fields := strings.Fields(command)
 	if len(fields) < 3 || linuxProbeToolName(fields[0]) != "ld.lld" || fields[1] != "-v" {
-		return false, false
+		return false, false, nil
 	}
 	candidate := strings.Join(fields[2:], " ")
+	if s.toolProbe != nil {
+		supported, err := s.toolProbe.SupportsOption(ctx, "ld_option", fields[2:], nil)
+		return supported, true, err
+	}
 	supported, ok := linuxLLVMKconfigLDOptions[candidate]
-	return supported, ok
+	return supported, ok, nil
 }
 
 func (s *linuxProbeShell) unsupportedCommand(command string) error {
@@ -459,8 +560,14 @@ func normalizeLinuxProbeArchitecture(value string) (string, error) {
 		return "x86_64", nil
 	case "arm64", "aarch64":
 		return "aarch64", nil
+	case "arm", "armv7", "armv7l":
+		return "armv7", nil
+	case "riscv", "riscv64":
+		return "riscv64", nil
+	case "powerpc", "ppc64le":
+		return "ppc64le", nil
 	default:
-		return "", fmt.Errorf("unsupported architecture %q; expected x86_64 or aarch64", value)
+		return "", fmt.Errorf("unsupported architecture %q; expected x86_64, aarch64, armv7, riscv64, or ppc64le", value)
 	}
 }
 

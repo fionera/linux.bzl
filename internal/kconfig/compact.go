@@ -18,6 +18,8 @@ type NamedConfig struct {
 }
 
 type CompactMetadata struct {
+	Schema                  string                         `json:"schema,omitempty"`
+	Target                  *CompactTarget                 `json:"target,omitempty"`
 	Configs                 []CompactConfig                `json:"configs"`
 	ConfigPayloads          []CompactConfigPayload         `json:"config_payloads"`
 	CompileEnvironments     []CompactCompileEnvironment    `json:"compile_environments"`
@@ -26,6 +28,17 @@ type CompactMetadata struct {
 	SourceInputGroups       []string                       `json:"source_input_groups"`
 	ActionGroups            []CompactActionGroup           `json:"action_groups"`
 	ObjectVariants          []CompactObjectVariant         `json:"object_variants"`
+}
+
+// CompactTarget binds a generated graph to the platform-selected architecture
+// and to the exact compiler identity used for capability probes.
+type CompactTarget struct {
+	Profile       string `json:"profile"`
+	LinuxArch     string `json:"linux_arch"`
+	Srcarch       string `json:"srcarch"`
+	UTSMachine    string `json:"uts_machine"`
+	TargetTriple  string `json:"target_triple"`
+	ProbeIdentity string `json:"probe_identity"`
 }
 
 type CompactConfig struct {
@@ -123,6 +136,7 @@ type CompactMetadataOptions struct {
 	// Srcarch selects architecture include roots while scanning source files for
 	// CONFIG_* dependencies.
 	Srcarch string
+	Target  *CompactTarget
 }
 
 // CompactConfigGraph binds one resolved configuration to its Kbuild graph and
@@ -150,6 +164,21 @@ func (t *Tree) CompactMetadataBatchWithOptions(
 	}
 	variants := map[string]CompactObjectVariant{}
 	out := &CompactMetadata{}
+	if opts.Target != nil {
+		profile, err := LinuxTargetProfileByName(opts.Target.Profile)
+		if err != nil {
+			return nil, err
+		}
+		if err := profile.ValidateTargetIdentity(opts.Target.LinuxArch, opts.Target.TargetTriple); err != nil {
+			return nil, err
+		}
+		if opts.Target.Srcarch != profile.Srcarch || opts.Target.UTSMachine != profile.UTSMachine || opts.Target.ProbeIdentity == "" {
+			return nil, fmt.Errorf("compact metadata has incomplete or inconsistent target identity %#v", opts.Target)
+		}
+		copy := *opts.Target
+		out.Schema = "compact-v7-adaptive-content-graph"
+		out.Target = &copy
+	}
 	configPayloads := map[string]CompactConfigPayload{}
 	compileEnvironments := map[string]CompactCompileEnvironment{}
 	generatedHeaderFamilies := map[string]CompactGeneratedHeaderFamily{}
@@ -171,6 +200,12 @@ func (t *Tree) CompactMetadataBatchWithOptions(
 		})
 		if err != nil {
 			return nil, err
+		}
+		if opts.Target != nil {
+			profile, _ := LinuxTargetProfileByName(opts.Target.Profile)
+			if err := profile.ValidateResolvedArchitecture(resolved); err != nil {
+				return nil, fmt.Errorf("resolve config %q: %w", named.Name, err)
+			}
 		}
 		graph, err := graphForConfig(resolved)
 		if err != nil {
