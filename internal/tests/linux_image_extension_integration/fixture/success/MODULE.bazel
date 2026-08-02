@@ -23,9 +23,15 @@ linux_images.image(
     platform = "@llvm//platforms:linux_x86_64",
     source = "//:Kconfig",
 )
+linux_images.image(
+    name = "fixture_arm64",
+    config = "//:arm64.config",
+    platform = "@llvm//platforms:linux_arm64",
+    source = "//:Kconfig",
+)
 linux_images.overlay(
     name = "debug",
     config = "//:debug.config",
     image = "fixture_kernel",
 )
-use_repo(linux_images, "fixture_kernel")
+use_repo(linux_images, "fixture_arm64", "fixture_kernel")

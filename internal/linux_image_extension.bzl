@@ -1,6 +1,10 @@
 """Module extension and facade repositories for configured Linux images."""
 
-load(":linux_image_repository.bzl", _linux_image_repository = "linux_image")
+load(
+    ":linux_image_repository.bzl",
+    _linux_image_repository = "linux_image",
+    _linux_target_profile_for_platform = "linux_target_profile_for_platform",
+)
 
 visibility("//...")
 
@@ -148,6 +152,7 @@ def _linux_images_impl(module_ctx):
         image = images[name]
         graph_repo = name + "__linux_graph"
         image_overlays = overlays_by_image.get(name, {})
+        target_profile = _linux_target_profile_for_platform(image.platform)
         _linux_image_repository(
             name = graph_repo,
             config = image.config,
@@ -157,6 +162,9 @@ def _linux_images_impl(module_ctx):
             probe_cc = "@%s//:clang.exe" % _PROBE_REPOSITORY,
             probe_ld = "@%s//:ld.lld.exe" % _PROBE_REPOSITORY,
             source = image.source,
+            target_profile = target_profile.name,
+            linux_arch = target_profile.linux_arch,
+            target_triple = target_profile.target_triple,
         )
         _linux_image_facade_repository(
             name = name,

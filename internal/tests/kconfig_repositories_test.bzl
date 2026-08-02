@@ -50,6 +50,19 @@ def _target_profiles_test_impl(ctx):
     }
     for profile, identity in want.items():
         asserts.equals(env, identity, repositories_test_helpers.target_profile_identity(profile))
+    for platform, profile in {
+        "linux_arm64": "aarch64",
+        "linux_armv7": "armv7",
+        "linux_ppc64le": "ppc64le",
+        "linux_riscv64": "riscv64",
+        "linux_x86_64": "x86_64",
+    }.items():
+        selected = repositories_test_helpers.target_profile_for_platform(
+            Label("@llvm//platforms:%s" % platform),
+        )
+        asserts.equals(env, profile, selected.name)
+        asserts.equals(env, want[profile][0], selected.linux_arch)
+        asserts.equals(env, want[profile][3], selected.target_triple)
     return unittest.end(env)
 
 target_profiles_test = unittest.make(_target_profiles_test_impl)

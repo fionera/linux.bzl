@@ -92,6 +92,29 @@ _ARCHITECTURES = {
     ),
 }
 
+_TOOLCHAIN_PLATFORM_PROFILES = {
+    Label("@llvm//platforms:linux_arm64"): "aarch64",
+    Label("@llvm//platforms:linux_armv7"): "armv7",
+    Label("@llvm//platforms:linux_ppc64le"): "ppc64le",
+    Label("@llvm//platforms:linux_riscv64"): "riscv64",
+    Label("@llvm//platforms:linux_x86_64"): "x86_64",
+}
+
+def linux_target_profile_for_platform(platform):
+    """Returns repository metadata for a canonical LLVM target platform."""
+    name = _TOOLCHAIN_PLATFORM_PROFILES.get(platform)
+    if name == None:
+        fail(
+            "unsupported Linux target platform %s; expected one of %s" %
+            (platform, sorted([str(label) for label in _TOOLCHAIN_PLATFORM_PROFILES])),
+        )
+    descriptor = _ARCHITECTURES[name]
+    return struct(
+        linux_arch = descriptor.arch,
+        name = name,
+        target_triple = descriptor.target_triple,
+    )
+
 _ARCH_CONFIGS = {
     "CONFIG_ARM": "armv7",
     "CONFIG_ARM64": "aarch64",
@@ -2039,6 +2062,7 @@ repositories_test_helpers = struct(
         _ARCHITECTURES[name].uts_machine,
         _ARCHITECTURES[name].target_triple,
     ),
+    target_profile_for_platform = linux_target_profile_for_platform,
     without_rust_toolchain_config = _without_rust_toolchain_config,
 )
 

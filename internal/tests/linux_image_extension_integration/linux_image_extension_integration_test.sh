@@ -103,12 +103,21 @@ run_bazel \
   "${SUCCESS}" \
   "${SUCCESS_OUTPUT}" \
   query \
-  '@fixture_kernel//...' \
+  '@fixture_arm64//... + @fixture_kernel//...' \
   --output=label >"${QUERY_OUTPUT}" 2>"${LOCKFILE_LOG}"
 if grep -F "produced an invalid lockfile entry" "${LOCKFILE_LOG}" >/dev/null; then
   cat "${LOCKFILE_LOG}" >&2
   fail "linux_images produced an invalid lockfile entry"
 fi
+grep -E 'fixture_arm64//:kernel$' "${QUERY_OUTPUT}" >/dev/null ||
+  fail "ARM64 facade was not generated"
+for attribute in \
+  '"linux_arch": "arm64"' \
+  '"target_profile": "aarch64"' \
+  '"target_triple": "aarch64-linux-gnu"'; do
+  grep -F "${attribute}" "${SUCCESS}/MODULE.bazel.lock" >/dev/null ||
+    fail "ARM64 graph repository is missing ${attribute}"
+done
 
 for target in \
   config \
