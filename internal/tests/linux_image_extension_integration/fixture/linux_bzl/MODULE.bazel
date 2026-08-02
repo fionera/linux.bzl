@@ -4,3 +4,6 @@ module(
 )
 
 bazel_dep(name = "llvm", version = "0.8.14")
+
+linux_probe_tools = use_extension("//internal:linux_probe_tools_extension.bzl", "linux_probe_tools")
+use_repo(linux_probe_tools, "linux_bzl_probe_llvm")

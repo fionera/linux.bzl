@@ -5,6 +5,7 @@ load(":linux_image_repository.bzl", _linux_image_repository = "linux_image")
 visibility("//...")
 
 _IMAGE_NAME_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789_-"
+_PROBE_REPOSITORY = "linux_bzl_probe_llvm"
 _PROJECTION_TARGETS = [
     "config",
     "image",
@@ -121,6 +122,11 @@ def _root_tags(module_ctx):
             name,
             name + "__linux_graph",
         ]:
+            if repository == _PROBE_REPOSITORY:
+                fail(
+                    "Linux image %r generates reserved repository %r" %
+                    (name, repository),
+                )
             owner = generated_repositories.get(repository)
             if owner != None:
                 fail(
@@ -148,6 +154,8 @@ def _linux_images_impl(module_ctx):
             config_mode = image.config_mode,
             overlays = image_overlays,
             platform = image.platform,
+            probe_cc = "@%s//:clang.exe" % _PROBE_REPOSITORY,
+            probe_ld = "@%s//:ld.lld.exe" % _PROBE_REPOSITORY,
             source = image.source,
         )
         _linux_image_facade_repository(

@@ -21,6 +21,9 @@ bazel_dep(name = "rules_rs", version = "0.0.98")
 
 bazel_dep(name = "tar.bzl", version = "0.9.0", dev_dependency = True)
 
+linux_probe_tools = use_extension("//internal:linux_probe_tools_extension.bzl", "linux_probe_tools")
+use_repo(linux_probe_tools, "linux_bzl_probe_llvm")
+
 rules_rust = use_extension("@rules_rs//rs:rules_rust.bzl", "rules_rust")
 use_repo(rules_rust, "rules_rust")
 

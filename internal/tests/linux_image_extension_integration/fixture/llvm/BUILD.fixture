@@ -1,1 +1,3 @@
 exports_files(["MODULE.bazel"])
+
+exports_files(["host_tools_repository.bzl"])

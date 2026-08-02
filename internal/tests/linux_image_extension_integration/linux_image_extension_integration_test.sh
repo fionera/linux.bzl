@@ -34,6 +34,7 @@ prepare_fixture() {
     kconfig_tool_releases.bzl \
     linux_image_extension.bzl \
     linux_image_repository.bzl \
+    linux_probe_tools_extension.bzl \
     repository_utils.bzl; do
     cp "${RUNFILES_ROOT}/internal/${source}" "${MODULE_UNDER_TEST}/internal/${source}"
   done
@@ -51,7 +52,7 @@ run_bazel() {
       --noworkspace_rc \
       --output_base="${output_base}" \
       "$@" \
-      --lockfile_mode=off \
+      --lockfile_mode=update \
       --color=no \
       --curses=no
   )
@@ -95,12 +96,17 @@ trap cleanup EXIT
 
 readonly SUCCESS="${WORK_ROOT}/success"
 readonly QUERY_OUTPUT="${TEST_TMPDIR}/facade-query.txt"
+readonly LOCKFILE_LOG="${TEST_TMPDIR}/lockfile.log"
 run_bazel \
   "${SUCCESS}" \
   "${SUCCESS_OUTPUT}" \
   query \
   '@fixture_kernel//...' \
-  --output=label >"${QUERY_OUTPUT}"
+  --output=label >"${QUERY_OUTPUT}" 2>"${LOCKFILE_LOG}"
+if grep -F "produced an invalid lockfile entry" "${LOCKFILE_LOG}" >/dev/null; then
+  cat "${LOCKFILE_LOG}" >&2
+  fail "linux_images produced an invalid lockfile entry"
+fi
 
 for target in \
   config \
@@ -121,6 +127,24 @@ for target in \
 done
 grep -E '/graph:metadata\.json$' "${QUERY_OUTPUT}" >/dev/null ||
   fail "facade is missing graph metadata"
+
+readonly HOST_TOOLS_OUTPUT="${TEST_TMPDIR}/host-tools-query.txt"
+run_bazel \
+  "${SUCCESS}" \
+  "${SUCCESS_OUTPUT}" \
+  query \
+  '@@linux.bzl++linux_probe_tools+linux_bzl_probe_llvm//:clang.exe + @@linux.bzl++linux_probe_tools+linux_bzl_probe_llvm//:ld.lld.exe + @@linux.bzl++linux_probe_tools+linux_bzl_probe_llvm//:host-platform.txt' \
+  --output=label >"${HOST_TOOLS_OUTPUT}"
+for target in clang.exe ld.lld.exe host-platform.txt; do
+  grep -F "//:${target}" "${HOST_TOOLS_OUTPUT}" >/dev/null ||
+    fail "host-native LLVM probe repository is missing ${target}"
+done
+readonly HOST_PLATFORM_FILE="$({
+  find "${SUCCESS_OUTPUT}/external" -path '*linux_bzl_probe_llvm/host-platform.txt' -print -quit
+} 2>/dev/null)"
+[[ -n "${HOST_PLATFORM_FILE}" ]] || fail "host-native LLVM probe repository did not record its host platform"
+grep -E '.+/.+' "${HOST_PLATFORM_FILE}" >/dev/null ||
+  fail "host-native LLVM probe repository recorded an invalid host platform"
 
 readonly BUILD_OUTPUT="${TEST_TMPDIR}/facade-build-query.txt"
 run_bazel \
