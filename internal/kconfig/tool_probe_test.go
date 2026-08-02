@@ -30,11 +30,15 @@ exit 0
 }
 
 func testRealToolProbe(t *testing.T, profile string) (*LinuxToolProbe, string) {
+	return testRealToolProbeWithNames(t, profile, "clang", "ld.lld")
+}
+
+func testRealToolProbeWithNames(t *testing.T, profile, clangName, lldName string) (*LinuxToolProbe, string) {
 	t.Helper()
 	dir := t.TempDir()
 	counter := filepath.Join(dir, "count")
-	clang := filepath.Join(dir, "clang")
-	lld := filepath.Join(dir, "ld.lld")
+	clang := filepath.Join(dir, clangName)
+	lld := filepath.Join(dir, lldName)
 	writeProbeTool(t, clang, "clang version 22.1.8", counter)
 	writeProbeTool(t, lld, "LLD version 22.1.8", counter)
 	target, err := LinuxTargetProfileByName(profile)
@@ -49,6 +53,30 @@ func testRealToolProbe(t *testing.T, profile string) (*LinuxToolProbe, string) {
 		t.Fatal(err)
 	}
 	return probe, counter
+}
+
+func TestLinuxProbeShellWithToolsAcceptsWindowsSuffixedToolPaths(t *testing.T) {
+	probe, _ := testRealToolProbeWithNames(t, "armv7", "clang.exe", "ld.lld.exe")
+	shell, err := LinuxProbeShellWithTools(probe, LinuxProbeDefaultRustcVersion, LinuxProbeDefaultRustcLLVMVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		command string
+		want    string
+	}{
+		{command: `{ command -v ` + probe.clangPath + `; } >/dev/null 2>&1 && echo "y" || echo "n"`, want: "y"},
+		{command: `{ command -v ` + probe.lldPath + `; } >/dev/null 2>&1 && echo "y" || echo "n"`, want: "y"},
+		{command: "/src/scripts/cc-version.sh " + probe.clangPath, want: "Clang 220108"},
+		{command: "/src/scripts/as-version.sh " + probe.clangPath + " -fintegrated-as", want: "LLVM 0"},
+		{command: "/src/scripts/ld-version.sh " + probe.lldPath, want: "LLD 220108"},
+		{command: probe.clangPath + " --version", want: "clang version 22.1.8"},
+	} {
+		got, runErr := shell(context.Background(), test.command)
+		if runErr != nil || got != test.want {
+			t.Errorf("shell(%q) = %q, %v; want %q", test.command, got, runErr, test.want)
+		}
+	}
 }
 
 func TestLinuxToolProbeRunsAndCachesRealCompilerProbe(t *testing.T) {

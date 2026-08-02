@@ -200,6 +200,9 @@ func linuxProbeToolName(value string) string {
 	if index := strings.LastIndexAny(value, `/\`); index >= 0 {
 		value = value[index+1:]
 	}
+	if len(value) > len(".exe") && strings.EqualFold(value[len(value)-len(".exe"):], ".exe") {
+		value = value[:len(value)-len(".exe")]
+	}
 	return value
 }
 
