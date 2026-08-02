@@ -37,6 +37,7 @@ type KbuildObject struct {
 	Root      bool            `json:"root,omitempty"`
 	Position  Position        `json:"position"`
 	order     int
+	traversal kbuildTraversal
 }
 
 type KbuildFlag struct {
@@ -48,6 +49,17 @@ type KbuildFlag struct {
 	Flags     []string        `json:"flags"`
 	Condition KbuildCondition `json:"condition"`
 	Position  Position        `json:"position"`
+	// traversalStart and traversalEnd delimit the DFS subtree in which a
+	// directory-wide flag was evaluated. They intentionally stay private: the
+	// parsed Kbuild JSON is a diagnostic format, while compact metadata is
+	// resolved in the same process as the directory traversal.
+	traversalStart int
+	traversalEnd   int
+}
+
+type kbuildTraversal struct {
+	scope  int
+	linked bool
 }
 
 type KbuildDir struct {
@@ -96,6 +108,7 @@ type kbuildCompositeMember struct {
 	Directory string
 	Condition KbuildCondition
 	Position  Position
+	traversal kbuildTraversal
 }
 
 type kbuildCompositeAssignment struct {
@@ -105,6 +118,7 @@ type kbuildCompositeAssignment struct {
 	Operator  string
 	Condition KbuildCondition
 	Position  Position
+	traversal kbuildTraversal
 }
 
 type kbuildObjectAssignment struct {
@@ -116,6 +130,7 @@ type kbuildObjectAssignment struct {
 	Root      bool
 	Position  Position
 	order     int
+	traversal kbuildTraversal
 }
 
 type kbuildObjectSetting struct {
@@ -2387,6 +2402,7 @@ type kbuildDirectoryTreeParser struct {
 	rootCache          map[string]*KbuildFile
 	stack              map[string]bool
 	inheritedVariables map[string]string
+	nextTraversalScope int
 }
 
 func (p *kbuildDirectoryTreeParser) collectRootExports() error {
@@ -2434,7 +2450,9 @@ func (p *kbuildDirectoryTreeParser) parsePath(path, objectDir string, gate Kbuil
 	p.stack[abs] = true
 	defer delete(p.stack, abs)
 
-	out := prefixKbuildFile(local, objectDir, gate, linkRoots)
+	p.nextTraversalScope++
+	traversal := kbuildTraversal{scope: p.nextTraversalScope, linked: linkRoots}
+	out := prefixKbuildFile(local, objectDir, gate, linkRoots, traversal)
 	sources := []struct {
 		raw       *KbuildFile
 		prefixed  *KbuildFile
@@ -2446,7 +2464,7 @@ func (p *kbuildDirectoryTreeParser) parsePath(path, objectDir string, gate Kbuil
 			if err != nil {
 				return nil, err
 			}
-			rootPrefixed := prefixKbuildFile(rootLocal, "", gate, linkRoots)
+			rootPrefixed := prefixKbuildFile(rootLocal, "", gate, linkRoots, traversal)
 			out.merge(rootPrefixed)
 			sources = append(sources, struct {
 				raw       *KbuildFile
@@ -2518,7 +2536,17 @@ func (p *kbuildDirectoryTreeParser) parsePath(path, objectDir string, gate Kbuil
 		}
 	}
 	out.objectAssigns = orderedAssignments
+	closeKbuildFlagTraversal(out.Flags, traversal.scope, p.nextTraversalScope)
+	closeKbuildFlagTraversal(out.RemoveFlags, traversal.scope, p.nextTraversalScope)
 	return out, nil
+}
+
+func closeKbuildFlagTraversal(flags []KbuildFlag, start, end int) {
+	for i := range flags {
+		if flags[i].traversalStart == start {
+			flags[i].traversalEnd = end
+		}
+	}
 }
 
 func (p *kbuildDirectoryTreeParser) parseRootMakefile(path string) (*KbuildFile, error) {
@@ -2574,13 +2602,14 @@ func (p *kbuildDirectoryTreeParser) kbuildFileForDir(dir string) (string, bool) 
 	return "", false
 }
 
-func prefixKbuildFile(kb *KbuildFile, dir string, gate KbuildCondition, linkRoots bool) *KbuildFile {
+func prefixKbuildFile(kb *KbuildFile, dir string, gate KbuildCondition, linkRoots bool, traversal kbuildTraversal) *KbuildFile {
 	out := &KbuildFile{}
 	for _, object := range kb.Objects {
 		object.Directory = dir
 		object.Object = prefixKbuildPath(dir, object.Object)
 		object.Condition = combineKbuildConditions(gate, object.Condition)
 		object.Root = object.Root && linkRoots
+		object.traversal = traversal
 		out.Objects = append(out.Objects, object)
 	}
 	for _, flag := range kb.Flags {
@@ -2593,6 +2622,8 @@ func prefixKbuildFile(kb *KbuildFile, dir string, gate KbuildCondition, linkRoot
 			flag.Directory = ""
 		}
 		flag.Condition = combineKbuildConditions(gate, flag.Condition)
+		flag.traversalStart = traversal.scope
+		flag.traversalEnd = traversal.scope
 		out.Flags = append(out.Flags, flag)
 	}
 	for _, flag := range kb.RemoveFlags {
@@ -2603,6 +2634,8 @@ func prefixKbuildFile(kb *KbuildFile, dir string, gate KbuildCondition, linkRoot
 			flag.Directory = dir
 		}
 		flag.Condition = combineKbuildConditions(gate, flag.Condition)
+		flag.traversalStart = traversal.scope
+		flag.traversalEnd = traversal.scope
 		out.RemoveFlags = append(out.RemoveFlags, flag)
 	}
 	for _, target := range kb.Generated {
@@ -2629,6 +2662,7 @@ func prefixKbuildFile(kb *KbuildFile, dir string, gate KbuildCondition, linkRoot
 		}
 		assignment.Condition = combineKbuildConditions(gate, assignment.Condition)
 		assignment.Root = assignment.Root && linkRoots
+		assignment.traversal = traversal
 		out.objectAssigns = append(out.objectAssigns, assignment)
 	}
 	for _, member := range kb.compositeMembers {
@@ -2636,6 +2670,7 @@ func prefixKbuildFile(kb *KbuildFile, dir string, gate KbuildCondition, linkRoot
 		member.Composite = prefixKbuildPath(dir, member.Composite)
 		member.Object = prefixKbuildPath(dir, member.Object)
 		member.Condition = combineKbuildConditions(gate, member.Condition)
+		member.traversal = traversal
 		out.compositeMembers = append(out.compositeMembers, member)
 	}
 	for _, assignment := range kb.compositeAssigns {
@@ -2645,6 +2680,7 @@ func prefixKbuildFile(kb *KbuildFile, dir string, gate KbuildCondition, linkRoot
 			assignment.Objects[i] = prefixKbuildPath(dir, object)
 		}
 		assignment.Condition = combineKbuildConditions(gate, assignment.Condition)
+		assignment.traversal = traversal
 		out.compositeAssigns = append(out.compositeAssigns, assignment)
 	}
 	for _, setting := range kb.objectSettings {

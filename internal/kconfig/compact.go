@@ -840,6 +840,7 @@ type resolvedKbuildObject struct {
 	footprint       map[string]bool
 	members         []string
 	root            bool
+	traversals      []kbuildTraversal
 }
 
 type resolvedKbuildFlag struct {
@@ -877,6 +878,7 @@ func (kb *KbuildFile) resolvedObjects(config *ResolvedConfig) resolvedKbuildObje
 		if object.directory == "" {
 			object.directory = entry.Directory
 		}
+		object.addTraversal(entry.traversal)
 		if entry.Root {
 			object.root = true
 			if entry.Kind == "lib" {
@@ -902,6 +904,9 @@ func (kb *KbuildFile) resolvedObjects(config *ResolvedConfig) resolvedKbuildObje
 		if parent == nil {
 			continue
 		}
+		if member.traversal.scope != 0 && !parent.hasActiveTraversal(member.traversal) {
+			continue
+		}
 		mode := compositeMemberMode(parent.mode, member.Mode)
 		if mode == "n" {
 			continue
@@ -921,6 +926,7 @@ func (kb *KbuildFile) resolvedObjects(config *ResolvedConfig) resolvedKbuildObje
 		if object.directory == "" {
 			object.directory = member.Directory
 		}
+		object.addTraversal(member.traversal)
 		if modePrecedence(mode) > modePrecedence(object.mode) {
 			object.mode = mode
 		}
@@ -1119,6 +1125,7 @@ func (kb *KbuildFile) resolvedObjectEntries(config *ResolvedConfig) []KbuildObje
 		directory string
 		kind      string
 		mode      string
+		traversal int
 	}
 	type assignmentRecord struct {
 		key    bucketKey
@@ -1134,7 +1141,12 @@ func (kb *KbuildFile) resolvedObjectEntries(config *ResolvedConfig) []KbuildObje
 		if mode == "n" {
 			continue
 		}
-		key := bucketKey{directory: assignment.Directory, kind: assignment.Kind, mode: mode}
+		key := bucketKey{
+			directory: assignment.Directory,
+			kind:      assignment.Kind,
+			mode:      mode,
+			traversal: assignment.traversal.scope,
+		}
 		values := make([]KbuildObject, 0, len(assignment.Objects))
 		for _, object := range assignment.Objects {
 			values = append(values, KbuildObject{
@@ -1144,6 +1156,7 @@ func (kb *KbuildFile) resolvedObjectEntries(config *ResolvedConfig) []KbuildObje
 				Condition: assignment.Condition,
 				Root:      assignment.Root,
 				Position:  assignment.Position,
+				traversal: assignment.traversal,
 			})
 		}
 		addRecord := func() {
@@ -1188,12 +1201,14 @@ type resolvedCompositeMember struct {
 	Directory string
 	Mode      string
 	Condition KbuildCondition
+	traversal kbuildTraversal
 }
 
 type compositeMemberValue struct {
 	object    string
 	directory string
 	condition KbuildCondition
+	traversal kbuildTraversal
 }
 
 func (kb *KbuildFile) resolvedCompositeMembers(config *ResolvedConfig, parents map[string]*resolvedKbuildObject) []resolvedCompositeMember {
@@ -1206,6 +1221,7 @@ func (kb *KbuildFile) resolvedCompositeMembers(config *ResolvedConfig, parents m
 				Directory: member.Directory,
 				Mode:      member.Condition.Mode(config),
 				Condition: member.Condition,
+				traversal: member.traversal,
 			})
 		}
 		return out
@@ -1214,19 +1230,25 @@ func (kb *KbuildFile) resolvedCompositeMembers(config *ResolvedConfig, parents m
 	type bucketKey struct {
 		composite string
 		mode      string
+		traversal int
 	}
 	buckets := map[bucketKey][]compositeMemberValue{}
 	var bucketOrder []bucketKey
 	assigned := map[bucketKey]bool{}
 	for _, assignment := range kb.compositeAssigns {
-		if parents[assignment.Composite] == nil {
+		parent := parents[assignment.Composite]
+		if parent == nil || (assignment.traversal.scope != 0 && !parent.hasActiveTraversal(assignment.traversal)) {
 			continue
 		}
 		mode := assignment.Condition.Mode(config)
 		if mode == "n" {
 			continue
 		}
-		key := bucketKey{composite: assignment.Composite, mode: mode}
+		key := bucketKey{
+			composite: assignment.Composite,
+			mode:      mode,
+			traversal: assignment.traversal.scope,
+		}
 		if _, ok := buckets[key]; !ok {
 			bucketOrder = append(bucketOrder, key)
 		}
@@ -1236,6 +1258,7 @@ func (kb *KbuildFile) resolvedCompositeMembers(config *ResolvedConfig, parents m
 				object:    object,
 				directory: assignment.Directory,
 				condition: assignment.Condition,
+				traversal: assignment.traversal,
 			})
 		}
 		switch assignment.Operator {
@@ -1261,6 +1284,7 @@ func (kb *KbuildFile) resolvedCompositeMembers(config *ResolvedConfig, parents m
 				Directory: value.directory,
 				Mode:      key.mode,
 				Condition: value.condition,
+				traversal: value.traversal,
 			})
 		}
 	}
@@ -1274,6 +1298,37 @@ func appendUnique(values []string, value string) []string {
 		}
 	}
 	return append(values, value)
+}
+
+func (object *resolvedKbuildObject) addTraversal(traversal kbuildTraversal) {
+	if traversal.scope == 0 {
+		return
+	}
+	for _, existing := range object.traversals {
+		if existing.scope == traversal.scope {
+			return
+		}
+	}
+	object.traversals = append(object.traversals, traversal)
+}
+
+func (object *resolvedKbuildObject) hasActiveTraversal(want kbuildTraversal) bool {
+	hasLinked := false
+	for _, traversal := range object.traversals {
+		if traversal.linked {
+			hasLinked = true
+			break
+		}
+	}
+	for _, traversal := range object.traversals {
+		if hasLinked && !traversal.linked {
+			continue
+		}
+		if traversal.scope == want.scope {
+			return true
+		}
+	}
+	return false
 }
 
 func appendModName(existing, value string) string {
@@ -1291,6 +1346,25 @@ func appendModName(existing, value string) string {
 }
 
 func globalFlagAppliesToObject(flag KbuildFlag, object *resolvedKbuildObject) bool {
+	if flag.traversalStart != 0 {
+		hasLinked := false
+		for _, traversal := range object.traversals {
+			if traversal.linked {
+				hasLinked = true
+				break
+			}
+		}
+		for _, traversal := range object.traversals {
+			if hasLinked && !traversal.linked {
+				continue
+			}
+			if traversal.scope == flag.traversalStart ||
+				(flag.Recursive && traversal.scope > flag.traversalStart && traversal.scope <= flag.traversalEnd) {
+				return true
+			}
+		}
+		return false
+	}
 	flagDir := strings.TrimSuffix(flag.Directory, "/")
 	objectDir := strings.TrimSuffix(object.directory, "/")
 	if objectDir == flagDir {

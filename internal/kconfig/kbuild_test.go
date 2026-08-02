@@ -2089,6 +2089,75 @@ obj-y += main.o
 	}
 }
 
+func TestParseKbuildDirectoryTreeScopesFlagsByTraversalRatherThanPath(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"Kbuild": `KBUILD_AFLAGS += -m64
+obj-y += arch/x86/boot/startup/
+subdir- += arch/x86/boot
+`,
+		"arch/x86/boot/Makefile": `KBUILD_AFLAGS := -m16 -D_SETUP
+subdir- += compressed
+obj-y += setup.o startup/la57toggle.o
+`,
+		"arch/x86/boot/compressed/Makefile": "obj-y += head.o\n",
+		"arch/x86/boot/startup/Makefile": `KBUILD_AFLAGS += -D__DISABLE_EXPORTS
+lib-y += la57toggle.o
+`,
+	}
+	for path, content := range files {
+		fullPath := filepath.Join(dir, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) failed: %v", filepath.Dir(fullPath), err)
+		}
+		if err := os.WriteFile(fullPath, []byte(content), 0o644); err != nil {
+			t.Fatalf("WriteFile(%q) failed: %v", path, err)
+		}
+	}
+
+	kb, err := ParseKbuildDirectoryTree(filepath.Join(dir, "Kbuild"), KbuildOptions{RootDir: dir})
+	if err != nil {
+		t.Fatalf("ParseKbuildDirectoryTree() failed: %v", err)
+	}
+	objects := kb.resolvedObjects(&ResolvedConfig{})
+	flagsFor := func(name string) []string {
+		t.Helper()
+		object := objects.byName[name]
+		if object == nil {
+			t.Fatalf("resolved object %q is missing", name)
+		}
+		var flags []string
+		for _, group := range object.flags {
+			flags = append(flags, group.values...)
+		}
+		return flags
+	}
+
+	startupFlags := flagsFor("arch/x86/boot/startup/la57toggle.o")
+	for _, want := range []string{"-m64", "-D__DISABLE_EXPORTS"} {
+		if !slices.Contains(startupFlags, want) {
+			t.Errorf("startup flags = %#v, want %q", startupFlags, want)
+		}
+	}
+	for _, unwanted := range []string{"-m16", "-D_SETUP"} {
+		if slices.Contains(startupFlags, unwanted) {
+			t.Errorf("startup flags = %#v, unexpectedly contain discovery-only %q", startupFlags, unwanted)
+		}
+	}
+
+	for _, object := range []string{
+		"arch/x86/boot/setup.o",
+		"arch/x86/boot/compressed/head.o",
+	} {
+		flags := flagsFor(object)
+		for _, want := range []string{"-m64", "-m16", "-D_SETUP"} {
+			if !slices.Contains(flags, want) {
+				t.Errorf("%s flags = %#v, want %q", object, flags, want)
+			}
+		}
+	}
+}
+
 func TestParseKbuildDirectoryTreeFiltersActionTimeRootMakefileKbuildFlags(t *testing.T) {
 	tests := []struct {
 		name     string
