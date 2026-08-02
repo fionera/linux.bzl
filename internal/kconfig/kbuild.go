@@ -841,6 +841,7 @@ func (p *kbuildParser) parseAssignment(line string, pos Position) error {
 		if flags := concreteKbuildFlags(flagValues); len(flags) != 0 {
 			p.kb.Flags = append(p.kb.Flags, KbuildFlag{
 				Scope:     "global",
+				Recursive: true,
 				Language:  language,
 				Flags:     flags,
 				Condition: p.withActiveCondition(KbuildCondition{Kind: "const", State: "y"}),

@@ -2410,6 +2410,60 @@ obj-y += arch/riscv/kernel/compat_vdso/compat_vdso.o
 	}
 }
 
+func TestCompactContentGraphPowerPCArchRootIncludeIsRecursive(t *testing.T) {
+	tree := mustParseString(t, "mainmenu \"PowerPC architecture include root\"\n")
+	sourceRoot := t.TempDir()
+	for path, content := range map[string]string{
+		"Kbuild":                       "obj-y += arch/powerpc/kernel/\n",
+		"arch/powerpc/Makefile":        "KBUILD_CPPFLAGS += -I $(srctree)/arch/powerpc\n",
+		"arch/powerpc/kernel/Makefile": "obj-y += prom.o\n",
+		"arch/powerpc/kernel/prom.c":   "#include <mm/mmu_decl.h>\nint powerpc_prom;\n",
+		"arch/powerpc/mm/mmu_decl.h":   "#define POWERPC_MMU_DECL 1\n",
+	} {
+		mustWriteSource(t, sourceRoot, path, content)
+	}
+	writeCompactContentGraphForcedInputs(t, sourceRoot)
+	kb, err := ParseKbuildDirectoryTree(filepath.Join(sourceRoot, "Kbuild"), KbuildOptions{
+		RootDir:       sourceRoot,
+		RootMakefiles: []string{"arch/powerpc/Makefile"},
+		Variables:     map[string]string{"SRCARCH": "powerpc"},
+	})
+	if err != nil {
+		t.Fatalf("ParseKbuildDirectoryTree() failed: %v", err)
+	}
+	generate := func(name string) (*CompactMetadata, CompactObjectVariant) {
+		t.Helper()
+		metadata, err := compactMetadataBatchWithOptionsForTest(t, tree, kb, []NamedConfig{{Name: name}}, CompactMetadataOptions{
+			SourceRoot:            sourceRoot,
+			Srcarch:               "powerpc",
+			CompileEnvironmentABI: "powerpc-object-abi-v1",
+		})
+		if err != nil {
+			t.Fatalf("CompactMetadataBatchWithOptions(%s) failed: %v", name, err)
+		}
+		config := configByName(metadata, name)
+		return metadata, variantByTarget(metadata, objectTarget(metadata, config, "arch/powerpc/kernel/prom.o"))
+	}
+
+	metadata, before := generate("before")
+	if !reflect.DeepEqual(before.Flags, []string{"-I", "$(srctree)/arch/powerpc"}) {
+		t.Fatalf("PowerPC prom flags = %#v, want recursive architecture include root", before.Flags)
+	}
+	inputs, err := metadata.expandedSourceInputGroup(before.SourceInputGroup, "PowerPC prom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(sourceInputPaths(inputs), "arch/powerpc/mm/mmu_decl.h") {
+		t.Fatalf("PowerPC prom inputs = %v, want arch-relative mmu_decl.h", sourceInputPaths(inputs))
+	}
+
+	mustWriteSource(t, sourceRoot, "arch/powerpc/mm/mmu_decl.h", "#define POWERPC_MMU_DECL 2\n")
+	_, changed := generate("changed")
+	if changed.ContentID == before.ContentID {
+		t.Fatalf("PowerPC arch-relative header did not change prom content ID %q", before.ContentID)
+	}
+}
+
 func TestCompactContentGraphGeneratedUTSVersionForcedInput(t *testing.T) {
 	tree := mustParseString(t, `
 mainmenu "generated UTS version input"
