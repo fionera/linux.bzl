@@ -621,6 +621,65 @@ KCSAN_INSTRUMENT_BARRIERS := y
 	}
 }
 
+func TestParseKbuildDirectoryTreePropagatesProbeOptionToRootMakefiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Kbuild"), []byte("obj-y += root.o child/\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(Kbuild) failed: %v", err)
+	}
+	childDir := filepath.Join(dir, "child")
+	if err := os.MkdirAll(childDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(child) failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(childDir, "Makefile"), []byte(`obj-y += child.o
+CFLAGS_child.o := $(call cc-option,-fchild-probe)
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(child/Makefile) failed: %v", err)
+	}
+	archDir := filepath.Join(dir, "arch", "arm")
+	if err := os.MkdirAll(archDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(arch/arm) failed: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(archDir, "Makefile"), []byte(`obj-y += arch.o
+CFLAGS_arch.o := $(call cc-option,-fno-dwarf2-cfi-asm)
+`), 0o644); err != nil {
+		t.Fatalf("WriteFile(arch/arm/Makefile) failed: %v", err)
+	}
+
+	probeCalls := map[string]int{}
+	kb, err := ParseKbuildDirectoryTree(filepath.Join(dir, "Kbuild"), KbuildOptions{
+		RootDir:       dir,
+		RootMakefiles: []string{"arch/arm/Makefile"},
+		Variables:     map[string]string{"SRCARCH": "arm"},
+		ProbeOption: func(kind string, candidate, context []string) (bool, error) {
+			if kind != "cc_option" || len(candidate) != 1 {
+				t.Fatalf("probe = %q, %#v; want one cc-option candidate", kind, candidate)
+			}
+			probeCalls[candidate[0]]++
+			return true, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("ParseKbuildDirectoryTree() failed: %v", err)
+	}
+	wantProbeCalls := map[string]int{"-fchild-probe": 1, "-fno-dwarf2-cfi-asm": 1}
+	if !reflect.DeepEqual(probeCalls, wantProbeCalls) {
+		t.Fatalf("ProbeOption calls = %#v, want %#v", probeCalls, wantProbeCalls)
+	}
+	got := map[string][]string{}
+	for _, flag := range kb.Flags {
+		if flag.Scope == "object" {
+			got[flag.Object] = append(got[flag.Object], flag.Flags...)
+		}
+	}
+	want := map[string][]string{
+		"arch.o":        {"-fno-dwarf2-cfi-asm"},
+		"child/child.o": {"-fchild-probe"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("probed directory-tree flags = %#v, want %#v", got, want)
+	}
+}
+
 func TestParseKbuildExpandsAdditionalPureMakeFunctions(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "existing.o"), nil, 0o644); err != nil {

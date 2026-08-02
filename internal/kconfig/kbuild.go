@@ -2215,6 +2215,7 @@ func (p *kbuildDirectoryTreeParser) parsePath(path, objectDir string, gate Kbuil
 			RootDir:         p.rootDir,
 			Variables:       p.opts.Variables,
 			MaxIncludeDepth: p.opts.MaxIncludeDepth,
+			ProbeOption:     p.opts.ProbeOption,
 		}, variableOverrides)
 		if err != nil {
 			return nil, err
@@ -2331,6 +2332,7 @@ func (p *kbuildDirectoryTreeParser) parseRootMakefile(path string) (*KbuildFile,
 		RootDir:         p.rootDir,
 		Variables:       p.opts.Variables,
 		MaxIncludeDepth: p.opts.MaxIncludeDepth,
+		ProbeOption:     p.opts.ProbeOption,
 	}, variableOverrides)
 	if err != nil {
 		return nil, err
