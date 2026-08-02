@@ -334,13 +334,16 @@ func forbiddenProbeOption(arg string) bool {
 		"-xclang", "-save-temps", "--save-temps", "-ftime-trace",
 		"-xlinker", "-xassembler", "-wl,",
 		"-serialize-diagnostics", "-mj", "-fprofile", "-fcoverage",
-		"--script", "-t", "--version-script", "-map", "--map",
+		"--script", "-t", "--version-script",
 		"--dependency-file", "--sysroot", "-l", "--library-path",
 		"-i", "-include", "-isystem", "-iquote", "-idirafter",
 	} {
 		if strings.HasPrefix(lower, prefix) {
 			return true
 		}
+	}
+	if lower == "-map" || lower == "--map" || strings.HasPrefix(lower, "-map=") || strings.HasPrefix(lower, "--map=") {
+		return true
 	}
 	if strings.HasPrefix(lower, "-wa,") {
 		forwarded := strings.TrimPrefix(lower, "-wa,")

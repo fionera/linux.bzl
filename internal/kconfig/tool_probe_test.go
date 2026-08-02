@@ -79,6 +79,14 @@ func TestLinuxToolProbeReturnsUnsupportedExit(t *testing.T) {
 	}
 }
 
+func TestLinuxToolProbeAllowsARMAPCSMachineFlag(t *testing.T) {
+	probe, _ := testRealToolProbe(t, "armv7")
+	supported, err := probe.SupportsOption(context.Background(), "cc_option", []string{"-mapcs"}, nil)
+	if err != nil || !supported {
+		t.Fatalf("SupportsOption(-mapcs) = %v, %v; want true, nil", supported, err)
+	}
+}
+
 func TestLinuxToolProbeRejectsUnpinnedVersion(t *testing.T) {
 	dir := t.TempDir()
 	clang := filepath.Join(dir, "clang")
