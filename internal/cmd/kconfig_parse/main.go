@@ -1055,7 +1055,8 @@ func compactMetadata(
 	}
 	return tree.CompactMetadataBatchWithOptions(configs, opts, func(resolved *kconfig.ResolvedConfig) (kconfig.CompactConfigGraph, error) {
 		kbuildOpts := kconfig.KbuildOptions{
-			Variables: kbuildVariablesForConfig(vars, tree, resolved),
+			Variables:               kbuildVariablesForConfig(vars, tree, resolved),
+			ConfigVariablesComplete: true,
 		}
 		if toolProbe != nil {
 			kbuildOpts.ProbeOption = func(kind string, candidate, probeContext []string) (bool, error) {

@@ -137,6 +137,10 @@ type KbuildOptions struct {
 	SourceRoots     map[string]string
 	Variables       map[string]string
 	MaxIncludeDepth int
+	// ConfigVariablesComplete declares Variables to be the complete resolved
+	// CONFIG_* Make environment. Missing CONFIG_* names then expand empty and
+	// evaluate as unset instead of being retained as symbolic conditions.
+	ConfigVariablesComplete bool
 	// ProbeOption, when set, answers cc-option/as-option/ld-option using the
 	// selected real toolchain. The parser never invokes a command shell.
 	ProbeOption func(kind string, candidate, probeContext []string) (bool, error)
@@ -193,6 +197,7 @@ func parseKbuildFileTree(path string, opts KbuildOptions, variableOverrides map[
 		parsing:           map[string]bool{},
 	}
 	parser := newKbuildParserWithOverrides(opts.Variables, variableOverrides, "")
+	parser.configVariablesComplete = opts.ConfigVariablesComplete
 	parser.probeOption = opts.ProbeOption
 	parser.probeSource = opts.ProbeSource
 	parser.includeFunc = func(includes []KbuildInclude) error {
@@ -231,6 +236,7 @@ func parseKbuild(r io.Reader, filename string, vars map[string]string, baseDir s
 
 func parseKbuildWithOptions(r io.Reader, filename string, opts KbuildOptions, baseDir string) (*KbuildFile, error) {
 	parser := newKbuildParser(opts.Variables, baseDir)
+	parser.configVariablesComplete = opts.ConfigVariablesComplete
 	parser.probeOption = opts.ProbeOption
 	parser.probeSource = opts.ProbeSource
 	if err := parser.parseReader(r, filename); err != nil {
@@ -366,6 +372,8 @@ type kbuildParser struct {
 	includeDepth int
 	probeOption  func(kind string, candidate, probeContext []string) (bool, error)
 	probeSource  func(language, source string, probeContext []string) (bool, error)
+
+	configVariablesComplete bool
 }
 
 type kbuildVariable struct {
@@ -1669,6 +1677,9 @@ func (p *kbuildParser) expandVariable(name, original string, depth int) (string,
 	}
 	variable, ok := p.lookupVariable(name)
 	if !ok {
+		if p.configVariablesComplete && strings.HasPrefix(name, "CONFIG_") {
+			return "", true, nil
+		}
 		if p.knownEmptyConditionalVariable(name) {
 			return "", true, nil
 		}
@@ -2329,11 +2340,12 @@ func (p *kbuildDirectoryTreeParser) parsePath(path, objectDir string, gate Kbuil
 	if !ok {
 		variableOverrides := p.variableOverrides(objectDir)
 		parsed, err := parseKbuildFileTree(abs, KbuildOptions{
-			RootDir:         p.rootDir,
-			Variables:       p.opts.Variables,
-			MaxIncludeDepth: p.opts.MaxIncludeDepth,
-			ProbeOption:     p.opts.ProbeOption,
-			ProbeSource:     p.opts.ProbeSource,
+			RootDir:                 p.rootDir,
+			Variables:               p.opts.Variables,
+			ConfigVariablesComplete: p.opts.ConfigVariablesComplete,
+			MaxIncludeDepth:         p.opts.MaxIncludeDepth,
+			ProbeOption:             p.opts.ProbeOption,
+			ProbeSource:             p.opts.ProbeSource,
 		}, variableOverrides)
 		if err != nil {
 			return nil, err
@@ -2447,11 +2459,12 @@ func (p *kbuildDirectoryTreeParser) parseRootMakefile(path string) (*KbuildFile,
 	}
 	variableOverrides := p.variableOverrides("")
 	parsed, err := parseKbuildFileTree(abs, KbuildOptions{
-		RootDir:         p.rootDir,
-		Variables:       p.opts.Variables,
-		MaxIncludeDepth: p.opts.MaxIncludeDepth,
-		ProbeOption:     p.opts.ProbeOption,
-		ProbeSource:     p.opts.ProbeSource,
+		RootDir:                 p.rootDir,
+		Variables:               p.opts.Variables,
+		ConfigVariablesComplete: p.opts.ConfigVariablesComplete,
+		MaxIncludeDepth:         p.opts.MaxIncludeDepth,
+		ProbeOption:             p.opts.ProbeOption,
+		ProbeSource:             p.opts.ProbeSource,
 	}, variableOverrides)
 	if err != nil {
 		return nil, err
@@ -2837,8 +2850,10 @@ func (p *kbuildParser) evalConditional(keyword, rest string) kbuildConditionalEv
 		if !ok {
 			return kbuildConditionalEval{}
 		}
-		if condition, ok := makeConfigComparisonCondition(keyword, left, right); ok {
-			return kbuildConditionalEval{condition: condition, hasCondition: true}
+		if !p.configVariablesComplete {
+			if condition, ok := makeConfigComparisonCondition(keyword, left, right); ok {
+				return kbuildConditionalEval{condition: condition, hasCondition: true}
+			}
 		}
 		leftExpanded, leftErr := p.expand(left)
 		rightExpanded, rightErr := p.expand(right)
@@ -2866,6 +2881,9 @@ func (p *kbuildParser) evalConditional(keyword, rest string) kbuildConditionalEv
 		name = strings.TrimSpace(name)
 		value, ok := p.lookupRawVar(name)
 		if !ok && strings.HasPrefix(name, "CONFIG_") {
+			if p.configVariablesComplete {
+				return kbuildConditionalEval{known: true, value: keyword == "ifndef"}
+			}
 			condition := KbuildCondition{Kind: "config_ne", Symbol: name, State: "n"}
 			if keyword == "ifndef" {
 				condition = invertKbuildCondition(condition)

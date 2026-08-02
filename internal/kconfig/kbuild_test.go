@@ -1630,6 +1630,64 @@ endif
 	}
 }
 
+func TestParseKbuildCompleteConfigDoesNotLeakConditionalAppend(t *testing.T) {
+	for _, condition := range []struct {
+		name string
+		open string
+	}{
+		{name: "ifdef", open: "ifdef CONFIG_64BIT"},
+		{name: "ifeq", open: "ifeq ($(CONFIG_64BIT),y)"},
+		{name: "filtered ifneq", open: "ifneq ($(filter y,$(CONFIG_64BIT)),)"},
+	} {
+		t.Run(condition.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "Makefile")
+			content := "mmu-$(CONFIG_MMU) := memory.o\n" +
+				condition.open + "\n" +
+				"mmu-$(CONFIG_MMU) += mseal.o\n" +
+				"endif\n" +
+				"obj-y := $(mmu-y)\n"
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			for _, config := range []struct {
+				name      string
+				variables map[string]string
+				wantMseal bool
+			}{
+				{name: "missing is unset", variables: map[string]string{"CONFIG_MMU": "y"}},
+				{name: "defined empty is unset", variables: map[string]string{
+					"CONFIG_64BIT": "",
+					"CONFIG_MMU":   "y",
+				}},
+				{name: "enabled", variables: map[string]string{
+					"CONFIG_64BIT": "y",
+					"CONFIG_MMU":   "y",
+				}, wantMseal: true},
+			} {
+				t.Run(config.name, func(t *testing.T) {
+					kb, err := ParseKbuildFileWithOptions(path, KbuildOptions{
+						Variables:               config.variables,
+						ConfigVariablesComplete: true,
+					})
+					if err != nil {
+						t.Fatalf("ParseKbuildFileWithOptions() failed: %v", err)
+					}
+					want := []kbuildObjectSummary{
+						{object: "memory.o", kind: "const", state: "y", line: 5},
+					}
+					if config.wantMseal {
+						want = append(want, kbuildObjectSummary{object: "mseal.o", kind: "const", state: "y", line: 5})
+					}
+					if got := kbuildObjectSummaries(kb.Objects); !reflect.DeepEqual(got, want) {
+						t.Fatalf("objects mismatch\nwant: %#v\n got: %#v", want, got)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestParseKbuildEvaluatesElseIfChains(t *testing.T) {
 	kb, err := ParseKbuild(strings.NewReader(`selector := second
 ifeq ($(selector),first)
