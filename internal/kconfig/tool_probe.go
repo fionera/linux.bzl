@@ -279,6 +279,86 @@ func (p *LinuxToolProbe) SupportsSource(ctx context.Context, language string, ca
 	return supported, nil
 }
 
+var powerPCPatchableFunctionPattern = regexp.MustCompile(`(?ms)^func:.*?^[ \t]*\.localentry[^\n]*\n.*?^[ \t]*nop(?:[ \t].*)?\n[ \t]*nop(?:[ \t].*)?$`)
+
+// supportsPowerPCCompilerScript reproduces the two architecture script checks
+// used by PowerPC Kconfig with fixed source and argv. The script path from
+// Kconfig is recognized but never executed.
+func (p *LinuxToolProbe) supportsPowerPCCompilerScript(ctx context.Context, script, endian string) (bool, error) {
+	if p.profile.Name != "ppc64le" {
+		return false, fmt.Errorf("PowerPC compiler script probe requires ppc64le, got %q", p.profile.Name)
+	}
+	if endian != "-mlittle-endian" && endian != "-mbig-endian" {
+		return false, fmt.Errorf("unsupported PowerPC endian option %q", endian)
+	}
+	if script != "gcc-check-mprofile-kernel.sh" && script != "gcc-check-fpatchable-function-entry.sh" {
+		return false, fmt.Errorf("unsupported PowerPC compiler script %q", script)
+	}
+	key := strings.Join([]string{p.identity, p.profile.Name, p.profile.TargetTriple, "powerpc-script", script, endian}, "\x01")
+	p.mu.Lock()
+	value, ok := p.cache[key]
+	p.mu.Unlock()
+	if ok {
+		return value, nil
+	}
+
+	timedCtx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+	compile := func(source string, featureFlags ...string) (string, bool, error) {
+		args := []string{
+			"--target=" + p.profile.TargetTriple,
+			endian,
+			"-m64",
+			"-mabi=elfv2",
+			"-S",
+			"-x", "c",
+			"-O2",
+		}
+		args = append(args, featureFlags...)
+		args = append(args, "-", "-o", "-")
+		output, err := p.run(timedCtx, p.clangPath, args, []byte(source))
+		if err == nil {
+			return output, true, nil
+		}
+		if _, ok := err.(*exec.ExitError); ok {
+			return output, false, nil
+		}
+		return output, false, err
+	}
+
+	var supported bool
+	switch script {
+	case "gcc-check-mprofile-kernel.sh":
+		profiled, compiled, err := compile("int func() { return 0; }\n", "-p", "-mprofile-kernel")
+		if err != nil {
+			return false, err
+		}
+		if compiled && strings.Contains(profiled, "_mcount") {
+			notrace, notraceCompiled, err := compile("__attribute__((no_instrument_function)) int func() { return 0; }\n", "-p", "-mprofile-kernel")
+			if err != nil {
+				return false, err
+			}
+			supported = notraceCompiled && !strings.Contains(notrace, "_mcount")
+		}
+	case "gcc-check-fpatchable-function-entry.sh":
+		section, compiled, err := compile("int func() { return 0; }\n", "-fpatchable-function-entry=2")
+		if err != nil {
+			return false, err
+		}
+		if compiled && strings.Contains(section, "__patchable_function_entries") {
+			layout, layoutCompiled, err := compile("int x; int func() { return x; }\n", "-fpatchable-function-entry=2")
+			if err != nil {
+				return false, err
+			}
+			supported = layoutCompiled && powerPCPatchableFunctionPattern.MatchString(layout)
+		}
+	}
+	p.mu.Lock()
+	p.cache[key] = supported
+	p.mu.Unlock()
+	return supported, nil
+}
+
 func validateProbeCandidate(kind string, argv []string) error {
 	if len(argv) == 0 {
 		return fmt.Errorf("empty candidate")

@@ -164,6 +164,9 @@ func (s *linuxProbeShell) commandSucceeds(ctx context.Context, command string) (
 	case command == `python3 -c "import lxml"`:
 		return false, nil
 	}
+	if supported, recognized, err := s.knownPowerPCCompilerScriptProbe(ctx, command); recognized || err != nil {
+		return supported, err
+	}
 	if supported, recognized, err := s.knownClangSourceProbe(ctx, command); recognized || err != nil {
 		return supported, err
 	}
@@ -221,6 +224,44 @@ func linuxProbeScriptArgs(command, script string) ([]string, bool) {
 func isLinuxProbeScriptPath(path, script string) bool {
 	path = filepath.ToSlash(path)
 	return path == "scripts/"+script || strings.HasSuffix(path, "/scripts/"+script)
+}
+
+func linuxProbeArchitectureScriptArgs(command, architecture, script string) ([]string, bool) {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return nil, false
+	}
+	path := filepath.ToSlash(strings.Trim(fields[0], `"'`))
+	want := "arch/" + architecture + "/tools/" + script
+	if path != want && !strings.HasSuffix(path, "/"+want) {
+		return nil, false
+	}
+	return fields[1:], true
+}
+
+func (s *linuxProbeShell) knownPowerPCCompilerScriptProbe(ctx context.Context, command string) (bool, bool, error) {
+	for _, script := range []string{
+		"gcc-check-mprofile-kernel.sh",
+		"gcc-check-fpatchable-function-entry.sh",
+	} {
+		args, recognized := linuxProbeArchitectureScriptArgs(command, "powerpc", script)
+		if !recognized {
+			continue
+		}
+		if s.architecture != "ppc64le" || len(args) != 2 ||
+			linuxProbeToolName(args[0]) != "clang" ||
+			(args[1] != "-mlittle-endian" && args[1] != "-mbig-endian") {
+			return false, true, s.unsupportedCommand(command)
+		}
+		if s.toolProbe != nil {
+			supported, err := s.toolProbe.supportsPowerPCCompilerScript(ctx, script, args[1])
+			return supported, true, err
+		}
+		// Pinned Clang 22 does not implement -mprofile-kernel, while its
+		// ELFv2 patchable-function-entry layout has the two required nops.
+		return script == "gcc-check-fpatchable-function-entry.sh", true, nil
+	}
+	return false, false, nil
 }
 
 func isKnownLinuxProbeScript(command, script string, expected ...string) bool {

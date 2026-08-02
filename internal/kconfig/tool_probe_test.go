@@ -79,6 +79,59 @@ func TestLinuxProbeShellWithToolsAcceptsWindowsSuffixedToolPaths(t *testing.T) {
 	}
 }
 
+func TestLinuxProbeShellWithToolsMeasuresPowerPCCompilerScripts(t *testing.T) {
+	dir := t.TempDir()
+	clang := filepath.Join(dir, "clang.exe")
+	lld := filepath.Join(dir, "ld.lld.exe")
+	clangScript := `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo 'clang version 22.1.8'
+  exit 0
+fi
+input=$(/bin/cat)
+case " $* " in
+  *" -mprofile-kernel "*)
+    case "$input" in
+      *no_instrument_function*) ;;
+      *) echo 'bl _mcount' ;;
+    esac
+    ;;
+  *" -fpatchable-function-entry=2 "*)
+    echo 'func:'
+    echo '.localentry func, 8'
+    echo ' nop'
+    echo ' nop'
+    echo '.section __patchable_function_entries'
+    ;;
+esac
+`
+	if err := os.WriteFile(clang, []byte(clangScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeProbeTool(t, lld, "LLD version 22.1.8", filepath.Join(dir, "count"))
+	probe, err := NewLinuxToolProbe(LinuxToolProbeOptions{
+		Profile: "ppc64le", Architecture: "powerpc", TargetTriple: "powerpc64le-linux-gnu",
+		ClangPath: clang, LLDPath: lld, TempDir: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shell, err := LinuxProbeShellWithTools(probe, LinuxProbeDefaultRustcVersion, LinuxProbeDefaultRustcLLVMVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, script := range []string{
+		"gcc-check-mprofile-kernel.sh",
+		"gcc-check-fpatchable-function-entry.sh",
+	} {
+		command := `{ /src/arch/powerpc/tools/` + script + ` ` + clang + ` -mlittle-endian; } >/dev/null 2>&1 && echo "y" || echo "n"`
+		got, runErr := shell(context.Background(), command)
+		if runErr != nil || got != "y" {
+			t.Errorf("shell(%q) = %q, %v; want y", command, got, runErr)
+		}
+	}
+}
+
 func TestLinuxToolProbeRunsAndCachesRealCompilerProbe(t *testing.T) {
 	probe, counter := testRealToolProbe(t, "armv7")
 	for i := 0; i < 2; i++ {
