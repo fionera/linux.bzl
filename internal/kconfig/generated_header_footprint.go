@@ -498,6 +498,16 @@ func generatedHeaderAllFootprint(
 			sourcePaths = append(sourcePaths, compactGeneratedHeaderSource{path: path})
 		}
 	case "powerpc":
+		for _, symbol := range []string{
+			"CONFIG_PPC64",
+			"CONFIG_VDSO32",
+			"CONFIG_GENERIC_GETTIMEOFDAY",
+			"CONFIG_VDSO_GETRANDOM",
+		} {
+			// These symbols select vDSO output images or producer objects in
+			// arch/powerpc/kernel/vdso/Makefile rather than in source #if gates.
+			refs[symbol] = true
+		}
 		shared := []string{
 			"arch/powerpc/kernel/vdso/cacheflush.S",
 			"arch/powerpc/kernel/vdso/datapage.S",

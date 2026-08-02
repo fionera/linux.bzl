@@ -2419,6 +2419,58 @@ obj-y += arch/powerpc/kernel/vdso32_wrapper.o
 	}
 }
 
+func TestCompactContentGraphPowerPCVDSOFamilyBindsMakefileSelection(t *testing.T) {
+	tree := mustParseString(t, `
+mainmenu "PowerPC vDSO Makefile selection"
+
+config PPC64
+	bool "64-bit PowerPC"
+
+config VDSO32
+	bool "32-bit vDSO"
+
+config GENERIC_GETTIMEOFDAY
+	bool "generic gettimeofday"
+
+config VDSO_GETRANDOM
+	bool "vDSO getrandom"
+`)
+	kb, err := ParseKbuild(strings.NewReader("obj-y := init/main.o\n"), "Makefile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceRoot := t.TempDir()
+	mustWriteSource(t, sourceRoot, "init/main.c", "int main_v1;\n")
+	writeCompactContentGraphForcedInputs(t, sourceRoot)
+	familyID := func(name string, flags map[string]string) string {
+		t.Helper()
+		metadata, err := compactMetadataBatchWithOptionsForTest(t, tree, kb, []NamedConfig{{Name: name, Flags: flags}}, CompactMetadataOptions{
+			SourceRoot:            sourceRoot,
+			Srcarch:               "powerpc",
+			CompileEnvironmentABI: "powerpc-vdso-config-abi-v1",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(metadata.GeneratedHeaderFamilies) != 1 {
+			t.Fatalf("generated-header families = %#v, want one all family", metadata.GeneratedHeaderFamilies)
+		}
+		return metadata.GeneratedHeaderFamilies[0].ID
+	}
+
+	base := familyID("base", nil)
+	for _, symbol := range []string{
+		"CONFIG_PPC64",
+		"CONFIG_VDSO32",
+		"CONFIG_GENERIC_GETTIMEOFDAY",
+		"CONFIG_VDSO_GETRANDOM",
+	} {
+		if got := familyID(symbol, map[string]string{symbol: "y"}); got == base {
+			t.Errorf("%s did not change PowerPC generated-family identity %q", symbol, base)
+		}
+	}
+}
+
 func TestCompactContentGraphRISCVVDSOWrappersBindExactGeneratedBinaries(t *testing.T) {
 	tree := mustParseString(t, "mainmenu \"RISC-V vDSO exact identity\"\n")
 	kb, err := ParseKbuild(strings.NewReader(`
