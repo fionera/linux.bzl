@@ -301,6 +301,21 @@ func TestLinuxLLVMProbeShellHandlesGroupedARMStackGuardProbeByProfile(t *testing
 	}
 }
 
+func TestLinuxLLVMProbeShellRejectsExactARMV7KMSANCandidates(t *testing.T) {
+	shell := testLinuxProbeShell(t, "armv7")
+	for _, candidate := range []string{
+		"-fsanitize=kernel-memory",
+		"-fsanitize=kernel-memory -fsanitize-memory-param-retval",
+		"-fsanitize=kernel-memory -mllvm -msan-disable-checks=1",
+	} {
+		command := `{ clang -Werror -fintegrated-as ` + candidate + ` -c -x c /dev/null -o .tmp.o; } >/dev/null 2>&1 && echo "y" || echo "n"`
+		got, err := shell(context.Background(), command)
+		if err != nil || got != "n" {
+			t.Errorf("shell(%q) = %q, %v; want n", command, got, err)
+		}
+	}
+}
+
 func TestLinuxLLVMProbeShellSupportsExactRISCVKconfigCandidates(t *testing.T) {
 	shell := testLinuxProbeShell(t, "riscv64")
 	for _, candidate := range []string{
@@ -327,6 +342,22 @@ func TestLinuxLLVMProbeShellSupportsExactRISCVKconfigCandidates(t *testing.T) {
 			t.Errorf("shell(%q) = %q, %v; want y", command, got, err)
 		}
 	}
+	for _, candidate := range []string{
+		"-fsanitize=kernel-memory",
+		"-fsanitize=kernel-memory -fsanitize-memory-param-retval",
+		"-fsanitize=kernel-memory -mllvm -msan-disable-checks=1",
+	} {
+		command := `{ clang -Werror -fintegrated-as ` + candidate + ` -c -x c /dev/null -o .tmp.o; } >/dev/null 2>&1 && echo "y" || echo "n"`
+		got, err := shell(context.Background(), command)
+		if err != nil || got != "n" {
+			t.Errorf("shell(%q) = %q, %v; want n", command, got, err)
+		}
+	}
+	const linkerCommand = `ld.lld -v --no-relax-gp`
+	got, err := shell(context.Background(), `{ `+linkerCommand+`; } >/dev/null 2>&1 && echo "y" || echo "n"`)
+	if err != nil || got != "y" {
+		t.Errorf("shell(%q) = %q, %v; want y", linkerCommand, got, err)
+	}
 }
 
 func TestLinuxLLVMProbeShellSupportsExactPPC64LEKconfigCandidates(t *testing.T) {
@@ -339,12 +370,22 @@ func TestLinuxLLVMProbeShellSupportsExactPPC64LEKconfigCandidates(t *testing.T) 
 		"-mtune=power10",
 		"-mtune=power9",
 		"-mtune=power8",
+		"-fsanitize=kernel-memory",
+		"-fsanitize=kernel-memory -fsanitize-memory-param-retval",
+		"-fsanitize=kernel-memory -mllvm -msan-disable-checks=1",
+		"-m64 -mstack-protector-guard=tls -mstack-protector-guard-reg=r13 -mstack-protector-guard-offset=0",
 	} {
 		command := `{ clang -Werror -fintegrated-as ` + candidate + ` -c -x c /dev/null -o .tmp.o; } >/dev/null 2>&1 && echo "y" || echo "n"`
 		got, err := shell(context.Background(), command)
 		if err != nil || got != "y" {
 			t.Errorf("shell(%q) = %q, %v; want y", command, got, err)
 		}
+	}
+	const unsupportedPPC32Guard = "-m32 -mstack-protector-guard=tls -mstack-protector-guard-reg=r2 -mstack-protector-guard-offset=0"
+	command := `{ clang -Werror -fintegrated-as ` + unsupportedPPC32Guard + ` -c -x c /dev/null -o .tmp.o; } >/dev/null 2>&1 && echo "y" || echo "n"`
+	got, err := shell(context.Background(), command)
+	if err != nil || got != "n" {
+		t.Errorf("shell(%q) = %q, %v; want n", command, got, err)
 	}
 }
 

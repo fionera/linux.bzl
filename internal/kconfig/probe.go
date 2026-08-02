@@ -443,6 +443,10 @@ func (s *linuxProbeShell) knownClangOptionProbe(ctx context.Context, command str
 		if !known {
 			supported, known = linuxLLVMKconfigCCOptionsARM64[key]
 		}
+	case "armv7":
+		if !known {
+			supported, known = linuxLLVMKconfigCCOptionsARMV7[key]
+		}
 	case "riscv64":
 		if !known {
 			supported, known = linuxLLVMKconfigCCOptionsRISCV64[key]
@@ -576,6 +580,9 @@ func (s *linuxProbeShell) knownLLDOptionProbe(ctx context.Context, command strin
 		return supported, true, err
 	}
 	supported, ok := linuxLLVMKconfigLDOptions[candidate]
+	if !ok && s.architecture == "riscv64" {
+		supported, ok = linuxLLVMKconfigLDOptionsRISCV64[candidate]
+	}
 	return supported, ok, nil
 }
 
@@ -760,7 +767,16 @@ var linuxLLVMKconfigCCOptionsARM64 = map[string]bool{
 	normalizeLinuxProbeCandidate([]string{"-mstack-protector-guard=sysreg", "-mstack-protector-guard-reg=sp_el0", "-mstack-protector-guard-offset=0"}): true,
 }
 
+var linuxLLVMKconfigCCOptionsARMV7 = map[string]bool{
+	normalizeLinuxProbeCandidate([]string{"-fsanitize=kernel-memory"}):                                     false,
+	normalizeLinuxProbeCandidate([]string{"-fsanitize=kernel-memory", "-fsanitize-memory-param-retval"}):   false,
+	normalizeLinuxProbeCandidate([]string{"-fsanitize=kernel-memory", "-mllvm", "-msan-disable-checks=1"}): false,
+}
+
 var linuxLLVMKconfigCCOptionsRISCV64 = map[string]bool{
+	normalizeLinuxProbeCandidate([]string{"-fsanitize=kernel-memory"}):                                                                          false,
+	normalizeLinuxProbeCandidate([]string{"-fsanitize=kernel-memory", "-fsanitize-memory-param-retval"}):                                        false,
+	normalizeLinuxProbeCandidate([]string{"-fsanitize=kernel-memory", "-mllvm", "-msan-disable-checks=1"}):                                      false,
 	normalizeLinuxProbeCandidate([]string{"-fsanitize=shadow-call-stack"}):                                                                      true,
 	normalizeLinuxProbeCandidate([]string{"-mabi=lp64", "-march=rv64imv"}):                                                                      true,
 	normalizeLinuxProbeCandidate([]string{"-mabi=ilp32", "-march=rv32imv"}):                                                                     true,
@@ -780,13 +796,18 @@ var linuxLLVMKconfigCCOptionsRISCV64 = map[string]bool{
 }
 
 var linuxLLVMKconfigCCOptionsPPC64LE = map[string]bool{
-	normalizeLinuxProbeCandidate([]string{"-mabi=elfv2"}):                  true,
-	normalizeLinuxProbeCandidate([]string{"-mcpu=power10", "-mprefixed"}):  true,
-	normalizeLinuxProbeCandidate([]string{"-mcpu=power10", "-mpcrel"}):     true,
-	normalizeLinuxProbeCandidate([]string{"-fpatchable-function-entry=2"}): true,
-	normalizeLinuxProbeCandidate([]string{"-mtune=power10"}):               true,
-	normalizeLinuxProbeCandidate([]string{"-mtune=power9"}):                true,
-	normalizeLinuxProbeCandidate([]string{"-mtune=power8"}):                true,
+	normalizeLinuxProbeCandidate([]string{"-fpatchable-function-entry=2"}):                                                                               true,
+	normalizeLinuxProbeCandidate([]string{"-fsanitize=kernel-memory"}):                                                                                   true,
+	normalizeLinuxProbeCandidate([]string{"-fsanitize=kernel-memory", "-fsanitize-memory-param-retval"}):                                                 true,
+	normalizeLinuxProbeCandidate([]string{"-fsanitize=kernel-memory", "-mllvm", "-msan-disable-checks=1"}):                                               true,
+	normalizeLinuxProbeCandidate([]string{"-m32", "-mstack-protector-guard=tls", "-mstack-protector-guard-reg=r2", "-mstack-protector-guard-offset=0"}):  false,
+	normalizeLinuxProbeCandidate([]string{"-m64", "-mstack-protector-guard=tls", "-mstack-protector-guard-reg=r13", "-mstack-protector-guard-offset=0"}): true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=elfv2"}):                                                                                                true,
+	normalizeLinuxProbeCandidate([]string{"-mcpu=power10", "-mpcrel"}):                                                                                   true,
+	normalizeLinuxProbeCandidate([]string{"-mcpu=power10", "-mprefixed"}):                                                                                true,
+	normalizeLinuxProbeCandidate([]string{"-mtune=power10"}):                                                                                             true,
+	normalizeLinuxProbeCandidate([]string{"-mtune=power8"}):                                                                                              true,
+	normalizeLinuxProbeCandidate([]string{"-mtune=power9"}):                                                                                              true,
 }
 
 var linuxLLVMKconfigLDOptions = map[string]bool{
@@ -796,6 +817,10 @@ var linuxLLVMKconfigLDOptions = map[string]bool{
 	"--gc-sections":                  true,
 	"--orphan-handling=error":        true,
 	"--orphan-handling=warn":         true,
+}
+
+var linuxLLVMKconfigLDOptionsRISCV64 = map[string]bool{
+	"--no-relax-gp": true,
 }
 
 var linuxLLVMKnownCSourceFragments = []string{
