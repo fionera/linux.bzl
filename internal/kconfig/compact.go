@@ -2298,9 +2298,15 @@ func kbuildFlagLanguageMatchesSource(language string, source string) bool {
 	switch filepath.Ext(source) {
 	case ".c":
 		return language == "c"
-	case ".S", ".s", ".dts", ".dtso":
-		// Kbuild turns DTB object inputs into generated assembly wrappers
-		// before compiling them into .dtb.o or .dtbo.o objects.
+	case ".asn1", ".c_shipped", ".sh", ".uni":
+		// These source paths are explicit generator mappings whose outputs
+		// are compiled as C.
+		return language == "c"
+	case ".S", ".s":
+		return language == "asm"
+	case ".dts", ".dtso", ".pl":
+		// Kbuild turns DTB inputs into generated assembly wrappers, while
+		// the explicit perlasm source mappings emit assembly sources.
 		return language == "asm"
 	default:
 		return true

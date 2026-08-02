@@ -3538,13 +3538,47 @@ func TestCompactContentGraphSpecialSourceManifestExcludesHostTools(t *testing.T)
 	}
 }
 
-func TestCompactGeneratedDTBWrappersUseAssemblyFlags(t *testing.T) {
+func TestCompactMappedGeneratedSourcesUseOutputLanguageFlags(t *testing.T) {
 	for _, tc := range []struct {
-		object string
-		source string
+		object    string
+		source    string
+		wantFlags []string
 	}{
-		{object: "drivers/of/base.dtb.o", source: "drivers/of/base.dts"},
-		{object: "drivers/of/overlay.dtbo.o", source: "drivers/of/overlay.dtso"},
+		{
+			object:    "drivers/of/base.dtb.o",
+			source:    "drivers/of/base.dts",
+			wantFlags: []string{"-DANY", "-DASM_ONLY"},
+		},
+		{
+			object:    "drivers/of/overlay.dtbo.o",
+			source:    "drivers/of/overlay.dtso",
+			wantFlags: []string{"-DANY", "-DASM_ONLY"},
+		},
+		{
+			object:    "lib/crypto/arm/sha256-core.o",
+			source:    "lib/crypto/arm/sha256-armv4.pl",
+			wantFlags: []string{"-DANY", "-DASM_ONLY"},
+		},
+		{
+			object:    "crypto/example.asn1.o",
+			source:    "crypto/example.asn1",
+			wantFlags: []string{"-DANY", "-DC_ONLY"},
+		},
+		{
+			object:    "drivers/tty/vt/defkeymap.o",
+			source:    "drivers/tty/vt/defkeymap.c_shipped",
+			wantFlags: []string{"-DANY", "-DC_ONLY"},
+		},
+		{
+			object:    "drivers/tty/vt/consolemap_deftbl.o",
+			source:    "drivers/tty/vt/cp437.uni",
+			wantFlags: []string{"-DANY", "-DC_ONLY"},
+		},
+		{
+			object:    "arch/x86/kernel/cpu/capflags.o",
+			source:    "arch/x86/kernel/cpu/mkcapflags.sh",
+			wantFlags: []string{"-DANY", "-DC_ONLY"},
+		},
 	} {
 		t.Run(filepath.Ext(tc.source), func(t *testing.T) {
 			object := resolvedKbuildObject{
@@ -3571,8 +3605,8 @@ func TestCompactGeneratedDTBWrappersUseAssemblyFlags(t *testing.T) {
 				nil,
 				"x86",
 			)
-			if got, want := variant.Flags, []string{"-DANY", "-DASM_ONLY"}; !reflect.DeepEqual(got, want) {
-				t.Fatalf("%s flags = %v, want %v", tc.source, got, want)
+			if got := variant.Flags; !reflect.DeepEqual(got, tc.wantFlags) {
+				t.Fatalf("%s flags = %v, want %v", tc.source, got, tc.wantFlags)
 			}
 		})
 	}
