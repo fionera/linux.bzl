@@ -446,6 +446,12 @@ func generatedHeaderAllFootprint(
 			"arch/arm/tools/syscall.tbl",
 		)
 	case "riscv":
+		// The purgatory link omits its local string routines while either KASAN
+		// implementation is enabled, so these symbols are part of the generated
+		// purgatory.ro action identity even though no producer source references
+		// them directly.
+		refs["CONFIG_KASAN_GENERIC"] = true
+		refs["CONFIG_KASAN_SW_TAGS"] = true
 		for _, path := range []string{
 			"arch/riscv/kernel/vdso/flush_icache.S",
 			"arch/riscv/kernel/vdso/getcpu.S",
@@ -476,6 +482,20 @@ func generatedHeaderAllFootprint(
 				path:    path,
 				profile: sourceScanRISCVCompatVDSO,
 			})
+		}
+		for _, path := range []string{
+			"arch/riscv/purgatory/purgatory.c",
+			"arch/riscv/purgatory/entry.S",
+			"lib/crypto/sha256.c",
+			"lib/string.c",
+			"lib/ctype.c",
+			"arch/riscv/lib/memcpy.S",
+			"arch/riscv/lib/memset.S",
+			"arch/riscv/lib/strcmp.S",
+			"arch/riscv/lib/strlen.S",
+			"arch/riscv/lib/strncmp.S",
+		} {
+			sourcePaths = append(sourcePaths, compactGeneratedHeaderSource{path: path})
 		}
 	case "powerpc":
 		shared := []string{

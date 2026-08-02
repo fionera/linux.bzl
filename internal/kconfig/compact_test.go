@@ -2302,6 +2302,9 @@ func TestCompactContentGraphGeneratedObjectActionFootprints(t *testing.T) {
 		"arch/x86/purgatory/kexec-purgatory.o": {
 			"arch/x86/purgatory/purgatory.ro",
 		},
+		"arch/riscv/purgatory/kexec-purgatory.o": {
+			"arch/riscv/purgatory/purgatory.ro",
+		},
 		"arch/x86/realmode/rmpiggy.o": {
 			"arch/x86/realmode/rm/realmode.bin",
 			"arch/x86/realmode/rm/realmode.relocs",
@@ -2510,6 +2513,105 @@ obj-y += arch/riscv/kernel/compat_vdso/compat_vdso.o
 		if changed[name].ContentID == before[name].ContentID {
 			t.Errorf("%s RISC-V wrapper content ID did not change with producer", name)
 		}
+	}
+}
+
+func TestCompactContentGraphRISCVPurgatoryBindsGeneratedImageAndProducers(t *testing.T) {
+	tree := mustParseString(t, `
+mainmenu "RISC-V purgatory image identity"
+
+config KASAN_GENERIC
+	bool "generic KASAN"
+
+config KASAN_SW_TAGS
+	bool "software-tag KASAN"
+`)
+	kb, err := ParseKbuild(strings.NewReader(
+		"obj-y := arch/riscv/purgatory/kexec-purgatory.o\n",
+	), "Makefile")
+	if err != nil {
+		t.Fatalf("ParseKbuild() failed: %v", err)
+	}
+	sourceRoot := t.TempDir()
+	for path, content := range map[string]string{
+		"arch/riscv/purgatory/kexec-purgatory.S": ".incbin \"arch/riscv/purgatory/purgatory.ro\"\n",
+		"arch/riscv/purgatory/purgatory.c":       "int purgatory;\n",
+		"arch/riscv/purgatory/entry.S":           "nop\n",
+		"lib/crypto/sha256.c":                    "int sha256;\n",
+		"lib/string.c":                           "int string;\n",
+		"lib/ctype.c":                            "int ctype;\n",
+		"arch/riscv/lib/memcpy.S":                "nop\n",
+		"arch/riscv/lib/memset.S":                "nop\n",
+		"arch/riscv/lib/strcmp.S":                "nop\n",
+		"arch/riscv/lib/strlen.S":                "nop\n",
+		"arch/riscv/lib/strncmp.S":               "nop\n",
+	} {
+		mustWriteSource(t, sourceRoot, path, content)
+	}
+	writeCompactContentGraphForcedInputs(t, sourceRoot)
+	generate := func(name string, flags map[string]string) (*CompactMetadata, CompactObjectVariant) {
+		t.Helper()
+		metadata, err := compactMetadataBatchWithOptionsForTest(t, tree, kb, []NamedConfig{{Name: name, Flags: flags}}, CompactMetadataOptions{
+			SourceRoot:            sourceRoot,
+			Srcarch:               "riscv",
+			CompileEnvironmentABI: "riscv-purgatory-abi-v1",
+		})
+		if err != nil {
+			t.Fatalf("CompactMetadataBatchWithOptions(%s) failed: %v", name, err)
+		}
+		config := configByName(metadata, name)
+		return metadata, variantByTarget(metadata, objectTarget(metadata, config, "arch/riscv/purgatory/kexec-purgatory.o"))
+	}
+
+	metadata, before := generate("before", nil)
+	if len(metadata.GeneratedHeaderFamilies) != 1 ||
+		metadata.GeneratedHeaderFamilies[0].Name != compactGeneratedHeaderFamilyAll {
+		t.Fatalf("RISC-V purgatory generated-header families = %#v, want one all family", metadata.GeneratedHeaderFamilies)
+	}
+	family := metadata.GeneratedHeaderFamilies[0]
+	inputs, err := metadata.expandedSourceInputGroup(family.SourceInputGroup, "RISC-V purgatory producers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := sourceInputPaths(inputs)
+	for _, want := range []string{
+		"arch/riscv/purgatory/purgatory.c",
+		"arch/riscv/purgatory/entry.S",
+		"lib/crypto/sha256.c",
+		"lib/string.c",
+		"lib/ctype.c",
+		"arch/riscv/lib/memcpy.S",
+		"arch/riscv/lib/memset.S",
+		"arch/riscv/lib/strcmp.S",
+		"arch/riscv/lib/strlen.S",
+		"arch/riscv/lib/strncmp.S",
+	} {
+		if !slices.Contains(paths, want) {
+			t.Errorf("RISC-V purgatory producer inputs = %v, want %q", paths, want)
+		}
+	}
+	var environment CompactCompileEnvironment
+	for _, candidate := range metadata.CompileEnvironments {
+		if candidate.ID == before.CompileEnvironment {
+			environment = candidate
+			break
+		}
+	}
+	if !slices.Contains(environment.GeneratedHeaderFamilies, family.ID) {
+		t.Fatalf("RISC-V purgatory environment = %#v, want family %q", environment, family.ID)
+	}
+	kasanMetadata, _ := generate("kasan", map[string]string{"CONFIG_KASAN_GENERIC": "y"})
+	if kasanMetadata.GeneratedHeaderFamilies[0].ID == family.ID {
+		t.Fatalf("RISC-V KASAN membership did not change generated purgatory identity %q", family.ID)
+	}
+
+	mustWriteSource(t, sourceRoot, "lib/crypto/sha256.c", "int sha256_changed;\n")
+	changedMetadata, changed := generate("changed", nil)
+	if changedMetadata.GeneratedHeaderFamilies[0].ID == family.ID {
+		t.Fatalf("RISC-V purgatory producer did not change generated image identity %q", family.ID)
+	}
+	if changed.ContentID == before.ContentID {
+		t.Fatalf("RISC-V purgatory wrapper content ID did not change with producer %q", before.ContentID)
 	}
 }
 
