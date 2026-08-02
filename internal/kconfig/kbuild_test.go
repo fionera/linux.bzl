@@ -768,6 +768,65 @@ ccflags-y += $(call cc-option,-fno-stack-protector)
 	}
 }
 
+func TestMeasuredKbuildAsInstrUsesSourceProbeAndConcreteResult(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "Kbuild"), []byte("obj-y += root.o\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	archDir := filepath.Join(dir, "arch", "powerpc")
+	if err := os.MkdirAll(archDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(archDir, "Makefile"), []byte(`comma := ,
+CLANG_FLAGS := -fintegrated-as
+KBUILD_AFLAGS := -m64 -I /kernel/arch/powerpc
+asinstr := $(call as-instr,lis 9$(comma)foo@high,-DHAVE_AS_ATHIGH=1)
+KBUILD_CPPFLAGS += $(asinstr)
+KBUILD_CFLAGS += $(call cc-option,-mno-sched-epilog)
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var sourceCalls int
+	var optionContext []string
+	_, err := ParseKbuildDirectoryTree(filepath.Join(dir, "Kbuild"), KbuildOptions{
+		RootDir:       dir,
+		RootMakefiles: []string{"arch/powerpc/Makefile"},
+		Variables:     map[string]string{"SRCARCH": "powerpc"},
+		ProbeSource: func(language, source string, context []string) (bool, error) {
+			sourceCalls++
+			if language != "assembler-with-cpp" || source != "lis 9,foo@high" {
+				t.Fatalf("source probe = %q, %q; want PowerPC as-instr source", language, source)
+			}
+			wantContext := []string{"-fintegrated-as", "-m64", "-I", "/kernel/arch/powerpc"}
+			if !reflect.DeepEqual(context, wantContext) {
+				t.Fatalf("source probe context = %#v, want %#v", context, wantContext)
+			}
+			return true, nil
+		},
+		ProbeOption: func(kind string, candidate, context []string) (bool, error) {
+			if kind == "cc_option" && reflect.DeepEqual(candidate, []string{"-mno-sched-epilog"}) {
+				optionContext = append([]string(nil), context...)
+			}
+			return true, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("ParseKbuildDirectoryTree() failed: %v", err)
+	}
+	if sourceCalls != 1 {
+		t.Fatalf("source probe calls = %d, want 1", sourceCalls)
+	}
+	if !slices.Contains(optionContext, "-DHAVE_AS_ATHIGH=1") {
+		t.Fatalf("later cc-option context = %#v, want measured as-instr result", optionContext)
+	}
+	for _, arg := range optionContext {
+		if containsMakeReference(arg) || strings.Contains(arg, "as-instr") {
+			t.Fatalf("later cc-option context retained raw as-instr expression: %#v", optionContext)
+		}
+	}
+}
+
 func TestParseKbuildExpandsAdditionalPureMakeFunctions(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "existing.o"), nil, 0o644); err != nil {

@@ -140,6 +140,10 @@ type KbuildOptions struct {
 	// ProbeOption, when set, answers cc-option/as-option/ld-option using the
 	// selected real toolchain. The parser never invokes a command shell.
 	ProbeOption func(kind string, candidate, probeContext []string) (bool, error)
+	// ProbeSource, when set, answers source-based Kbuild capability checks such
+	// as as-instr using the selected real toolchain. The parser never invokes a
+	// command shell.
+	ProbeSource func(language, source string, probeContext []string) (bool, error)
 }
 
 func ParseKbuildFile(path string) (*KbuildFile, error) {
@@ -190,6 +194,7 @@ func parseKbuildFileTree(path string, opts KbuildOptions, variableOverrides map[
 	}
 	parser := newKbuildParserWithOverrides(opts.Variables, variableOverrides, "")
 	parser.probeOption = opts.ProbeOption
+	parser.probeSource = opts.ProbeSource
 	parser.includeFunc = func(includes []KbuildInclude) error {
 		return treeParser.parseIncludes(parser, includes)
 	}
@@ -227,6 +232,7 @@ func parseKbuild(r io.Reader, filename string, vars map[string]string, baseDir s
 func parseKbuildWithOptions(r io.Reader, filename string, opts KbuildOptions, baseDir string) (*KbuildFile, error) {
 	parser := newKbuildParser(opts.Variables, baseDir)
 	parser.probeOption = opts.ProbeOption
+	parser.probeSource = opts.ProbeSource
 	if err := parser.parseReader(r, filename); err != nil {
 		return nil, err
 	}
@@ -359,6 +365,7 @@ type kbuildParser struct {
 	includeFunc  func([]KbuildInclude) error
 	includeDepth int
 	probeOption  func(kind string, candidate, probeContext []string) (bool, error)
+	probeSource  func(language, source string, probeContext []string) (bool, error)
 }
 
 type kbuildVariable struct {
@@ -1377,7 +1384,7 @@ func (p *kbuildParser) evalReference(original, clause string, depth int) (string
 func (p *kbuildParser) kbuildKnownCall(name string, args []string, original, srcarch string) (string, bool, error) {
 	var kind string
 	switch name {
-	case "cc-disable-warning", "cc-option", "as-option", "ld-option", "cc-option-yn":
+	case "cc-disable-warning", "cc-option", "as-option", "as-instr", "ld-option", "cc-option-yn":
 		if onlyPositionalMakeReferences(args) {
 			return original, true, nil
 		}
@@ -1408,6 +1415,35 @@ func (p *kbuildParser) kbuildKnownCall(name string, args []string, original, src
 		kind = "cc_option"
 	case "as-option":
 		kind = "as_option"
+	case "as-instr":
+		if len(args) < 2 || len(args) > 3 {
+			return "", true, fmt.Errorf(
+				"%s: Clang capability call %q requires source, success value, and optional fallback",
+				p.currentPos,
+				name,
+			)
+		}
+		if p.probeSource == nil {
+			if p.probeOption != nil {
+				return "", true, fmt.Errorf("%s: measured Kbuild as-instr requires a source probe", p.currentPos)
+			}
+			return original, true, nil
+		}
+		supported, err := p.linuxLLVMKbuildProbeSupportsSource(
+			"assembler-with-cpp",
+			args[0],
+			srcarch,
+		)
+		if err != nil {
+			return "", true, err
+		}
+		if supported {
+			return strings.TrimSpace(args[1]), true, nil
+		}
+		if len(args) == 3 {
+			return strings.TrimSpace(args[2]), true, nil
+		}
+		return "", true, nil
 	case "ld-option":
 		kind = "ld_option"
 	case "cc-option-yn":
@@ -1463,6 +1499,34 @@ func (p *kbuildParser) kbuildKnownCall(name string, args []string, original, src
 		return strings.Join(candidate, " "), true, nil
 	}
 	return original, true, nil
+}
+
+func (p *kbuildParser) linuxLLVMKbuildProbeSupportsSource(
+	language string,
+	source string,
+	srcarch string,
+) (bool, error) {
+	architecture, err := normalizeLinuxProbeArchitecture(srcarch)
+	if err != nil {
+		return false, fmt.Errorf(
+			"%s: resolve Clang 22.1.8 Kbuild source probe for %q: %w",
+			p.currentPos,
+			language,
+			err,
+		)
+	}
+	context, err := p.linuxLLVMKbuildProbeContext("as_instr")
+	if err != nil {
+		return false, fmt.Errorf("%s: expand Kbuild source probe context: %w", p.currentPos, err)
+	}
+	if p.probeSource == nil {
+		return false, fmt.Errorf(
+			"%s: unsupported Clang 22.1.8 Kbuild source probe for architecture %q",
+			p.currentPos,
+			architecture,
+		)
+	}
+	return p.probeSource(language, source, slices.Clone(context))
 }
 
 func (p *kbuildParser) linuxLLVMKbuildProbeSupportsOption(
@@ -1557,6 +1621,8 @@ func (p *kbuildParser) linuxLLVMKbuildProbeContext(kind string) ([]string, error
 	case "as_option":
 		context = append(context, "-Werror")
 		names = append(names, "KBUILD_CPPFLAGS", "KBUILD_AFLAGS")
+	case "as_instr":
+		names = append(names, "CLANG_FLAGS", "KBUILD_AFLAGS")
 	case "ld_option":
 		names = append(names, "KBUILD_LDFLAGS")
 	}
@@ -2246,6 +2312,7 @@ func (p *kbuildDirectoryTreeParser) parsePath(path, objectDir string, gate Kbuil
 			Variables:       p.opts.Variables,
 			MaxIncludeDepth: p.opts.MaxIncludeDepth,
 			ProbeOption:     p.opts.ProbeOption,
+			ProbeSource:     p.opts.ProbeSource,
 		}, variableOverrides)
 		if err != nil {
 			return nil, err
@@ -2363,6 +2430,7 @@ func (p *kbuildDirectoryTreeParser) parseRootMakefile(path string) (*KbuildFile,
 		Variables:       p.opts.Variables,
 		MaxIncludeDepth: p.opts.MaxIncludeDepth,
 		ProbeOption:     p.opts.ProbeOption,
+		ProbeSource:     p.opts.ProbeSource,
 	}, variableOverrides)
 	if err != nil {
 		return nil, err

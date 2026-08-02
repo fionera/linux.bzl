@@ -152,6 +152,70 @@ func TestLinuxToolProbeRunsAndCachesRealCompilerProbe(t *testing.T) {
 	}
 }
 
+func TestLinuxToolProbeMeasuresSafeKbuildAssemblerSource(t *testing.T) {
+	dir := t.TempDir()
+	clang := filepath.Join(dir, "clang")
+	lld := filepath.Join(dir, "ld.lld")
+	clangScript := `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo 'clang version 22.1.8'
+  exit 0
+fi
+input=$(/bin/cat)
+case "$input" in
+  'lis 9,foo@high') ;;
+  *) exit 1 ;;
+esac
+case " $* " in
+  *' -Wa,--fatal-warnings '*) ;;
+  *) exit 1 ;;
+esac
+case " $* " in
+  *' /repository/include '*) exit 1 ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(clang, []byte(clangScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeProbeTool(t, lld, "LLD version 22.1.8", filepath.Join(dir, "count"))
+	probe, err := NewLinuxToolProbe(LinuxToolProbeOptions{
+		Profile: "ppc64le", Architecture: "powerpc", TargetTriple: "powerpc64le-linux-gnu",
+		ClangPath: clang, LLDPath: lld, TempDir: dir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	supported, err := probe.SupportsKbuildSource(
+		context.Background(),
+		"assembler-with-cpp",
+		"lis 9,foo@high",
+		[]string{"-fintegrated-as", "-m64", "-I", "/repository/include"},
+	)
+	if err != nil || !supported {
+		t.Fatalf("SupportsKbuildSource() = %v, %v; want true", supported, err)
+	}
+	if _, err := probe.SupportsKbuildSource(
+		context.Background(),
+		"assembler-with-cpp",
+		`.incbin "/etc/passwd"`,
+		nil,
+	); err == nil || !strings.Contains(err.Error(), "unsafe assembler") {
+		t.Fatalf("unsafe Kbuild source error = %v, want assembler validation failure", err)
+	}
+
+	decoded, err := decodeKbuildPrintfB(`.cfi_startproc\n.cfi_endproc`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded != ".cfi_startproc\n.cfi_endproc\n" {
+		t.Fatalf("decoded printf source = %q", decoded)
+	}
+	if err := validateKbuildAssemblerProbeSource(decoded); err != nil {
+		t.Fatalf("valid CFI as-instr source rejected: %v", err)
+	}
+}
+
 func TestLinuxToolProbeReturnsUnsupportedExit(t *testing.T) {
 	probe, _ := testRealToolProbe(t, "ppc64le")
 	supported, err := probe.SupportsOption(context.Background(), "cc_option", []string{"-fnot-supported"}, nil)

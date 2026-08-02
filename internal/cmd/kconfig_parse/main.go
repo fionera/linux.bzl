@@ -1061,6 +1061,9 @@ func compactMetadata(
 			kbuildOpts.ProbeOption = func(kind string, candidate, probeContext []string) (bool, error) {
 				return toolProbe.SupportsOption(context.Background(), kind, candidate, probeContext)
 			}
+			kbuildOpts.ProbeSource = func(language, source string, probeContext []string) (bool, error) {
+				return toolProbe.SupportsKbuildSource(context.Background(), language, source, probeContext)
+			}
 		}
 		var kb *kconfig.KbuildFile
 		var parseErr error

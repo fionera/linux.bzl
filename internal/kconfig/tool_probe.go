@@ -279,6 +279,148 @@ func (p *LinuxToolProbe) SupportsSource(ctx context.Context, language string, ca
 	return supported, nil
 }
 
+// SupportsKbuildSource compiles a bounded source fragment from a recognized
+// Kbuild capability check with its concrete compiler context. Kbuild's
+// as-instr helper feeds printf's %b output to the compiler, so escape decoding
+// is reproduced without invoking a shell.
+func (p *LinuxToolProbe) SupportsKbuildSource(
+	ctx context.Context,
+	language string,
+	source string,
+	probeContext []string,
+) (bool, error) {
+	if language != "assembler-with-cpp" {
+		return false, fmt.Errorf("unsupported Kbuild source probe language %q", language)
+	}
+	decoded, err := decodeKbuildPrintfB(source)
+	if err != nil {
+		return false, fmt.Errorf("invalid Kbuild source probe: %w", err)
+	}
+	if err := validateKbuildAssemblerProbeSource(decoded); err != nil {
+		return false, fmt.Errorf("invalid Kbuild source probe: %w", err)
+	}
+	execContext, err := sanitizeProbeContext("as_option", probeContext)
+	if err != nil {
+		return false, fmt.Errorf("invalid Kbuild source probe context: %w", err)
+	}
+	digest := sha256.Sum256([]byte(decoded))
+	key := strings.Join([]string{
+		p.identity, p.profile.Name, p.profile.TargetTriple, "kbuild-source", language,
+		strings.Join(probeContext, "\x00"), hex.EncodeToString(digest[:]),
+	}, "\x01")
+	p.mu.Lock()
+	value, ok := p.cache[key]
+	p.mu.Unlock()
+	if ok {
+		return value, nil
+	}
+
+	output, err := os.CreateTemp(p.tempDir, "linux-bzl-kbuild-source-probe-*.o")
+	if err != nil {
+		return false, fmt.Errorf("create Kbuild source probe output: %w", err)
+	}
+	outputPath := output.Name()
+	if err := output.Close(); err != nil {
+		os.Remove(outputPath)
+		return false, fmt.Errorf("close Kbuild source probe output: %w", err)
+	}
+	defer os.Remove(outputPath)
+	timedCtx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+	args := []string{"--target=" + p.profile.TargetTriple, "-Werror"}
+	args = append(args, execContext...)
+	args = append(args, "-Wa,--fatal-warnings", "-x", language, "-c", "-o", outputPath, "-")
+	_, runErr := p.run(timedCtx, p.clangPath, args, []byte(decoded))
+	supported := runErr == nil
+	if runErr != nil {
+		if _, ok := runErr.(*exec.ExitError); !ok {
+			return false, runErr
+		}
+	}
+	p.mu.Lock()
+	p.cache[key] = supported
+	p.mu.Unlock()
+	return supported, nil
+}
+
+func decodeKbuildPrintfB(source string) (string, error) {
+	if len(source) > 1024 {
+		return "", fmt.Errorf("source exceeds 1024 bytes")
+	}
+	var out strings.Builder
+	suppressNewline := false
+	for i := 0; i < len(source); i++ {
+		if source[i] != '\\' {
+			out.WriteByte(source[i])
+			continue
+		}
+		if i+1 == len(source) {
+			out.WriteByte('\\')
+			continue
+		}
+		i++
+		switch source[i] {
+		case 'a':
+			out.WriteByte('\a')
+		case 'b':
+			out.WriteByte('\b')
+		case 'c':
+			suppressNewline = true
+			i = len(source)
+		case 'f':
+			out.WriteByte('\f')
+		case 'n':
+			out.WriteByte('\n')
+		case 'r':
+			out.WriteByte('\r')
+		case 't':
+			out.WriteByte('\t')
+		case 'v':
+			out.WriteByte('\v')
+		case '\\':
+			out.WriteByte('\\')
+		default:
+			// POSIX printf %b preserves unrecognized backslash escapes.
+			out.WriteByte('\\')
+			out.WriteByte(source[i])
+		}
+	}
+	if !suppressNewline {
+		out.WriteByte('\n')
+	}
+	return out.String(), nil
+}
+
+var kbuildAssemblerProbeLinePattern = regexp.MustCompile(`^[A-Za-z_.][A-Za-z0-9_.]*(?:[ \t]+[A-Za-z0-9_@%.,+()\-]+(?:[ \t]+[A-Za-z0-9_@%.,+()\-]+)*)?[ \t]*$`)
+
+func validateKbuildAssemblerProbeSource(source string) error {
+	if strings.ContainsAny(source, "\x00\r") {
+		return fmt.Errorf("source contains a prohibited control character")
+	}
+	lines := strings.Split(source, "\n")
+	if len(lines) > 16 {
+		return fmt.Errorf("source exceeds 16 lines")
+	}
+	nonempty := 0
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		nonempty++
+		if !kbuildAssemblerProbeLinePattern.MatchString(line) {
+			return fmt.Errorf("unsafe assembler line %q", line)
+		}
+		if strings.HasPrefix(line, ".") && !strings.HasPrefix(line, ".cfi_") {
+			return fmt.Errorf("unsafe assembler directive %q", line)
+		}
+	}
+	if nonempty == 0 {
+		return fmt.Errorf("empty assembler source")
+	}
+	return nil
+}
+
 var powerPCPatchableFunctionPattern = regexp.MustCompile(`(?ms)^func:.*?^[ \t]*\.localentry[^\n]*\n.*?^[ \t]*nop(?:[ \t].*)?\n[ \t]*nop(?:[ \t].*)?$`)
 
 // supportsPowerPCCompilerScript reproduces the two architecture script checks
