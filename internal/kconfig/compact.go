@@ -1797,6 +1797,10 @@ func compactObjectActionFootprintForObject(object string, flags []string) compac
 		footprint.providedIncludes = []string{
 			"arch/riscv/purgatory/purgatory.ro",
 		}
+	case "arch/powerpc/purgatory/kexec-purgatory.o":
+		footprint.providedIncludes = []string{
+			"arch/powerpc/purgatory/purgatory.ro",
+		}
 	case "arch/x86/realmode/rmpiggy.o":
 		footprint.providedIncludes = []string{
 			"arch/x86/realmode/rm/realmode.bin",
@@ -1879,7 +1883,8 @@ func isMultiSourceImageObject(object string) bool {
 	return strings.HasPrefix(object, "arch/x86/entry/vdso/vdso-image-") ||
 		object == "arch/x86/realmode/rmpiggy.o" ||
 		object == "arch/x86/purgatory/kexec-purgatory.o" ||
-		object == "arch/riscv/purgatory/kexec-purgatory.o"
+		object == "arch/riscv/purgatory/kexec-purgatory.o" ||
+		object == "arch/powerpc/purgatory/kexec-purgatory.o"
 }
 
 func flagsNeedUTSVersionTmp(flags []string) bool {
@@ -1966,6 +1971,12 @@ func compactSpecialSourcesForObject(object string) compactSpecialSourceInputs {
 				"arch/riscv/lib/strncmp.S",
 			),
 		}
+	case "arch/powerpc/purgatory/kexec-purgatory.o":
+		return compactSpecialSourceInputs{
+			inputs: compiled(
+				"arch/powerpc/purgatory/trampoline_64.S",
+			),
+		}
 	case "arch/arm64/kernel/vdso32-wrap.o":
 		profile := func(path string, compiled bool) compactSpecialSourceInput {
 			return compactSpecialSourceInput{
@@ -2005,7 +2016,8 @@ func isArm64NvheObject(object string) bool {
 
 func objectNeedsFullConfig(object string) bool {
 	return object == "arch/x86/purgatory/kexec-purgatory.o" ||
-		object == "arch/riscv/purgatory/kexec-purgatory.o"
+		object == "arch/riscv/purgatory/kexec-purgatory.o" ||
+		object == "arch/powerpc/purgatory/kexec-purgatory.o"
 }
 
 func includeDirsFromFlags(flags []string, source string) ([]string, error) {
@@ -2474,6 +2486,7 @@ var compactGroupedSpecialObjects = map[string]bool{
 	"arch/riscv/kernel/vdso/vdso.o":               true,
 	"arch/riscv/kernel/compat_vdso/compat_vdso.o": true,
 	"arch/riscv/purgatory/kexec-purgatory.o":      true,
+	"arch/powerpc/purgatory/kexec-purgatory.o":    true,
 	"arch/powerpc/kernel/vdso64_wrapper.o":        true,
 	"arch/powerpc/kernel/vdso32_wrapper.o":        true,
 	"arch/x86/entry/vdso/vdso-image-64.o":         true,

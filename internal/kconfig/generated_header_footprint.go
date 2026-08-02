@@ -530,6 +530,9 @@ func generatedHeaderAllFootprint(
 			}
 		}
 		for _, source := range []compactGeneratedHeaderSource{
+			// CONFIG_KEXEC_FILE is only available for PPC64, whose purgatory
+			// image is linked from trampoline_64.o and embedded by the wrapper.
+			{path: "arch/powerpc/purgatory/trampoline_64.S"},
 			{path: "arch/powerpc/kernel/vdso/sigtramp64.S", profile: sourceScanPPC64VDSO},
 			{path: "arch/powerpc/kernel/vdso/vdso64.lds.S", profile: sourceScanPPC64VDSO},
 			{path: "arch/powerpc/kernel/vdso/sigtramp32.S", profile: sourceScanPPC32VDSO},

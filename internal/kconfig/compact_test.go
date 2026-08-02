@@ -2305,6 +2305,9 @@ func TestCompactContentGraphGeneratedObjectActionFootprints(t *testing.T) {
 		"arch/riscv/purgatory/kexec-purgatory.o": {
 			"arch/riscv/purgatory/purgatory.ro",
 		},
+		"arch/powerpc/purgatory/kexec-purgatory.o": {
+			"arch/powerpc/purgatory/purgatory.ro",
+		},
 		"arch/x86/realmode/rmpiggy.o": {
 			"arch/x86/realmode/rm/realmode.bin",
 			"arch/x86/realmode/rm/realmode.relocs",
@@ -2664,6 +2667,92 @@ config KASAN_SW_TAGS
 	}
 	if changed.ContentID == before.ContentID {
 		t.Fatalf("RISC-V purgatory wrapper content ID did not change with producer %q", before.ContentID)
+	}
+}
+
+func TestCompactContentGraphPowerPCPurgatoryBindsGeneratedImageAndProducer(t *testing.T) {
+	tree := mustParseString(t, `
+mainmenu "PowerPC purgatory image identity"
+
+config PPC64
+	bool "64-bit PowerPC"
+
+config KEXEC_FILE
+	bool "file-based kexec"
+`)
+	kb, err := ParseKbuild(strings.NewReader(
+		"obj-$(CONFIG_KEXEC_FILE) := arch/powerpc/purgatory/kexec-purgatory.o\n",
+	), "Kbuild")
+	if err != nil {
+		t.Fatalf("ParseKbuild() failed: %v", err)
+	}
+	sourceRoot := t.TempDir()
+	for path, content := range map[string]string{
+		"arch/powerpc/purgatory/kexec-purgatory.S": ".incbin \"arch/powerpc/purgatory/purgatory.ro\"\n",
+		"arch/powerpc/purgatory/trampoline_64.S":   "nop\n",
+	} {
+		mustWriteSource(t, sourceRoot, path, content)
+	}
+	writeCompactContentGraphForcedInputs(t, sourceRoot)
+	generate := func(name string, flags map[string]string) (*CompactMetadata, CompactObjectVariant) {
+		t.Helper()
+		metadata, err := compactMetadataBatchWithOptionsForTest(t, tree, kb, []NamedConfig{{Name: name, Flags: flags}}, CompactMetadataOptions{
+			SourceRoot:            sourceRoot,
+			Srcarch:               "powerpc",
+			CompileEnvironmentABI: "powerpc-purgatory-abi-v1",
+		})
+		if err != nil {
+			t.Fatalf("CompactMetadataBatchWithOptions(%s) failed: %v", name, err)
+		}
+		config := configByName(metadata, name)
+		return metadata, variantByTarget(metadata, objectTarget(metadata, config, "arch/powerpc/purgatory/kexec-purgatory.o"))
+	}
+
+	offMetadata, _ := generate("off", map[string]string{"CONFIG_PPC64": "y"})
+	if target := objectTarget(offMetadata, configByName(offMetadata, "off"), "arch/powerpc/purgatory/kexec-purgatory.o"); target != "" {
+		t.Fatalf("PowerPC purgatory target %q exists without CONFIG_KEXEC_FILE", target)
+	}
+	metadata, before := generate("before", map[string]string{
+		"CONFIG_PPC64":      "y",
+		"CONFIG_KEXEC_FILE": "y",
+	})
+	if before.Target == "" {
+		t.Fatal("PowerPC purgatory target is absent with CONFIG_KEXEC_FILE=y")
+	}
+	if len(metadata.GeneratedHeaderFamilies) != 1 ||
+		metadata.GeneratedHeaderFamilies[0].Name != compactGeneratedHeaderFamilyAll {
+		t.Fatalf("PowerPC purgatory generated-header families = %#v, want one all family", metadata.GeneratedHeaderFamilies)
+	}
+	family := metadata.GeneratedHeaderFamilies[0]
+	inputs, err := metadata.expandedSourceInputGroup(family.SourceInputGroup, "PowerPC purgatory producer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := sourceInputPaths(inputs)
+	if want := "arch/powerpc/purgatory/trampoline_64.S"; !slices.Contains(paths, want) {
+		t.Fatalf("PowerPC purgatory producer inputs = %v, want %q", paths, want)
+	}
+	var environment CompactCompileEnvironment
+	for _, candidate := range metadata.CompileEnvironments {
+		if candidate.ID == before.CompileEnvironment {
+			environment = candidate
+			break
+		}
+	}
+	if !slices.Contains(environment.GeneratedHeaderFamilies, family.ID) {
+		t.Fatalf("PowerPC purgatory environment = %#v, want family %q", environment, family.ID)
+	}
+
+	mustWriteSource(t, sourceRoot, "arch/powerpc/purgatory/trampoline_64.S", "nop\nnop\n")
+	changedMetadata, changed := generate("changed", map[string]string{
+		"CONFIG_PPC64":      "y",
+		"CONFIG_KEXEC_FILE": "y",
+	})
+	if changedMetadata.GeneratedHeaderFamilies[0].ID == family.ID {
+		t.Fatalf("PowerPC purgatory producer did not change generated image identity %q", family.ID)
+	}
+	if changed.ContentID == before.ContentID {
+		t.Fatalf("PowerPC purgatory wrapper content ID did not change with producer %q", before.ContentID)
 	}
 }
 
