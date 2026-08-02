@@ -294,6 +294,33 @@ func TestLinuxToolProbeFailsClosedBeforeExecution(t *testing.T) {
 	}
 }
 
+func TestSanitizeLinkerProbeContextAcceptsCanonicalOperandOptions(t *testing.T) {
+	got, err := sanitizeProbeContext("ld_option", []string{
+		"-m", "elf_x86_64",
+		"-z", "noexecstack",
+		"--no-ld-generated-unwind-info",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"-m", "elf_x86_64",
+		"-z", "noexecstack",
+		"--no-ld-generated-unwind-info",
+	}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("sanitizeProbeContext() = %#v, want %#v", got, want)
+	}
+	for _, context := range [][]string{
+		{"-m", "../../evil"},
+		{"-z"},
+	} {
+		if _, err := sanitizeProbeContext("ld_option", context); err == nil {
+			t.Errorf("sanitizeProbeContext(%#v) unexpectedly succeeded", context)
+		}
+	}
+}
+
 func TestLinuxToolProbeTimeoutAndOutputCap(t *testing.T) {
 	for _, test := range []struct {
 		name string

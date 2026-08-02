@@ -403,11 +403,22 @@ func (s *linuxProbeShell) knownClangOptionProbe(ctx context.Context, command str
 		return supported, true, err
 	}
 	var supported, known bool
+	if key == normalizeLinuxProbeCandidate([]string{"-m32"}) {
+		// Kconfig.include uses this canonical preprocessing probe on every
+		// architecture. Pinned Clang accepts the compatibility switch for all
+		// supported profiles except AArch64, where it is an unknown option.
+		supported = s.architecture != "aarch64"
+		known = true
+	}
 	switch s.architecture {
 	case "x86_64":
-		supported, known = linuxLLVMKconfigCCOptionsX86[key]
+		if !known {
+			supported, known = linuxLLVMKconfigCCOptionsX86[key]
+		}
 	case "aarch64":
-		supported, known = linuxLLVMKconfigCCOptionsARM64[key]
+		if !known {
+			supported, known = linuxLLVMKconfigCCOptionsARM64[key]
+		}
 	}
 	if !known {
 		supported, known = linuxLLVMKconfigCCOptionsCommon[key]

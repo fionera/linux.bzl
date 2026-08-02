@@ -579,7 +579,7 @@ func safeProbeOperand(option, operand string) bool {
 		return false
 	}
 	switch option {
-	case "-m":
+	case "-m", "-z":
 		return regexp.MustCompile(`^[A-Za-z0-9_.+-]+$`).MatchString(operand)
 	case "--param":
 		return regexp.MustCompile(`^[A-Za-z0-9_-]+=[A-Za-z0-9_-]+$`).MatchString(operand)
@@ -598,12 +598,22 @@ func safeProbeOperand(option, operand string) bool {
 func sanitizeProbeContext(kind string, argv []string) ([]string, error) {
 	out := make([]string, 0, len(argv))
 	skipOperand := false
+	safeOperand := ""
 	for _, arg := range argv {
 		if err := validateProbeToken(arg); err != nil {
 			return nil, err
 		}
 		if skipOperand {
 			skipOperand = false
+			continue
+		}
+		if safeOperand != "" {
+			option := safeOperand
+			safeOperand = ""
+			if !safeProbeOperand(option, arg) {
+				return nil, fmt.Errorf("unsafe operand %q for %s", arg, option)
+			}
+			out = append(out, arg)
 			continue
 		}
 		lower := strings.ToLower(arg)
@@ -617,6 +627,11 @@ func sanitizeProbeContext(kind string, argv []string) ([]string, error) {
 		if forbiddenProbeOption(arg) {
 			return nil, fmt.Errorf("file/plugin/output option is prohibited: %q", arg)
 		}
+		if kind == "ld_option" && (arg == "-m" || arg == "-z") {
+			out = append(out, arg)
+			safeOperand = arg
+			continue
+		}
 		if !strings.HasPrefix(arg, "-") {
 			return nil, fmt.Errorf("positional context argument is prohibited: %q", arg)
 		}
@@ -624,6 +639,9 @@ func sanitizeProbeContext(kind string, argv []string) ([]string, error) {
 	}
 	if skipOperand {
 		return nil, fmt.Errorf("missing path operand in probe context")
+	}
+	if safeOperand != "" {
+		return nil, fmt.Errorf("missing operand for final option %s", safeOperand)
 	}
 	return out, nil
 }

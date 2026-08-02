@@ -712,6 +712,38 @@ KBUILD_CFLAGS += $(call cc-option,-mno-fdpic)
 	}
 }
 
+func TestMeasuredKbuildProbeContextDropsWholeUnresolvedTryRun(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "Makefile")
+	if err := os.WriteFile(path, []byte(`cc_has_k_constraint := $(call try-run,echo \
+	'int main(void) { \
+		asm volatile("and w0, w0, %w0" :: "K" (4294967295)); \
+		return 0; \
+	}' | $(CC) -S -x c -o "$$TMP" -,,-DCONFIG_CC_HAS_K_CONSTRAINT=1)
+KBUILD_CFLAGS += -mgeneral-regs-only $(cc_has_k_constraint)
+KBUILD_CFLAGS += $(call cc-option,-mabi=lp64)
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []string
+	_, err := ParseKbuildFileWithOptions(path, KbuildOptions{
+		Variables: map[string]string{"SRCARCH": "arm64"},
+		ProbeOption: func(kind string, candidate, context []string) (bool, error) {
+			if kind == "cc_option" && reflect.DeepEqual(candidate, []string{"-mabi=lp64"}) {
+				got = append([]string(nil), context...)
+			}
+			return true, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"-Werror", "-mgeneral-regs-only"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("cc-option context = %#v, want %#v", got, want)
+	}
+}
+
 func TestMeasuredKbuildProbeContextExpandsMakeExpressions(t *testing.T) {
 	for _, tc := range []struct {
 		name             string

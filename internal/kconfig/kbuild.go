@@ -3507,8 +3507,31 @@ func assignmentReferencesVariable(rhs, name string) bool {
 
 func concreteKbuildFlags(values []string) []string {
 	flags := make([]string, 0, len(values))
+	parenDepth := 0
+	braceDepth := 0
 	for _, value := range values {
-		if containsMakeReference(value) {
+		insideReference := parenDepth != 0 || braceDepth != 0
+		for i := 0; i < len(value); i++ {
+			switch {
+			case i+1 < len(value) && value[i] == '$' && value[i+1] == '(':
+				parenDepth++
+				insideReference = true
+				i++
+			case i+1 < len(value) && value[i] == '$' && value[i+1] == '{':
+				braceDepth++
+				insideReference = true
+				i++
+			case parenDepth > 0 && value[i] == '(':
+				parenDepth++
+			case parenDepth > 0 && value[i] == ')':
+				parenDepth--
+			case braceDepth > 0 && value[i] == '{':
+				braceDepth++
+			case braceDepth > 0 && value[i] == '}':
+				braceDepth--
+			}
+		}
+		if insideReference {
 			continue
 		}
 		flags = append(flags, value)
