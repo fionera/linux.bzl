@@ -301,6 +301,34 @@ func TestLinuxLLVMProbeShellHandlesGroupedARMStackGuardProbeByProfile(t *testing
 	}
 }
 
+func TestLinuxLLVMProbeShellSupportsExactRISCVKconfigCandidates(t *testing.T) {
+	shell := testLinuxProbeShell(t, "riscv64")
+	for _, candidate := range []string{
+		"-fsanitize=shadow-call-stack",
+		"-mabi=lp64 -march=rv64imv",
+		"-mabi=ilp32 -march=rv32imv",
+		"-mabi=lp64 -march=rv64ima_zabha",
+		"-mabi=ilp32 -march=rv32ima_zabha",
+		"-mabi=lp64 -march=rv64ima_zacas",
+		"-mabi=ilp32 -march=rv32ima_zacas",
+		"-mabi=lp64 -march=rv64ima_zbb",
+		"-mabi=ilp32 -march=rv32ima_zbb",
+		"-mabi=lp64 -march=rv64ima_zba",
+		"-mabi=ilp32 -march=rv32ima_zba",
+		"-mabi=lp64 -march=rv64ima_zbc",
+		"-mabi=ilp32 -march=rv32ima_zbc",
+		"-mabi=lp64 -march=rv64ima_zbkb",
+		"-mabi=ilp32 -march=rv32ima_zbkb",
+		"-mstack-protector-guard=tls -mstack-protector-guard-reg=tp -mstack-protector-guard-offset=0",
+	} {
+		command := `{ clang -Werror -fintegrated-as ` + candidate + ` -c -x c /dev/null -o .tmp.o; } >/dev/null 2>&1 && echo "y" || echo "n"`
+		got, err := shell(context.Background(), command)
+		if err != nil || got != "y" {
+			t.Errorf("shell(%q) = %q, %v; want y", command, got, err)
+		}
+	}
+}
+
 func TestLinuxProbeShellKeepsCompilerAndHostFactsFixed(t *testing.T) {
 	shell, err := LinuxProbeShell("x86_64", 109900, 230001)
 	if err != nil {

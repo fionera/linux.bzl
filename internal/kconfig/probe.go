@@ -443,6 +443,10 @@ func (s *linuxProbeShell) knownClangOptionProbe(ctx context.Context, command str
 		if !known {
 			supported, known = linuxLLVMKconfigCCOptionsARM64[key]
 		}
+	case "riscv64":
+		if !known {
+			supported, known = linuxLLVMKconfigCCOptionsRISCV64[key]
+		}
 	}
 	if !known {
 		supported, known = linuxLLVMKconfigCCOptionsCommon[key]
@@ -750,6 +754,25 @@ var linuxLLVMKconfigCCOptionsARM64 = map[string]bool{
 	normalizeLinuxProbeCandidate([]string{"-mbranch-protection=pac-ret+leaf+bti"}):                                                                     true,
 	normalizeLinuxProbeCandidate([]string{"-msign-return-address=all"}):                                                                                true,
 	normalizeLinuxProbeCandidate([]string{"-mstack-protector-guard=sysreg", "-mstack-protector-guard-reg=sp_el0", "-mstack-protector-guard-offset=0"}): true,
+}
+
+var linuxLLVMKconfigCCOptionsRISCV64 = map[string]bool{
+	normalizeLinuxProbeCandidate([]string{"-fsanitize=shadow-call-stack"}):                                                                      true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=lp64", "-march=rv64imv"}):                                                                      true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=ilp32", "-march=rv32imv"}):                                                                     true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=lp64", "-march=rv64ima_zabha"}):                                                                true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=ilp32", "-march=rv32ima_zabha"}):                                                               true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=lp64", "-march=rv64ima_zacas"}):                                                                true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=ilp32", "-march=rv32ima_zacas"}):                                                               true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=lp64", "-march=rv64ima_zbb"}):                                                                  true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=ilp32", "-march=rv32ima_zbb"}):                                                                 true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=lp64", "-march=rv64ima_zba"}):                                                                  true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=ilp32", "-march=rv32ima_zba"}):                                                                 true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=lp64", "-march=rv64ima_zbc"}):                                                                  true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=ilp32", "-march=rv32ima_zbc"}):                                                                 true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=lp64", "-march=rv64ima_zbkb"}):                                                                 true,
+	normalizeLinuxProbeCandidate([]string{"-mabi=ilp32", "-march=rv32ima_zbkb"}):                                                                true,
+	normalizeLinuxProbeCandidate([]string{"-mstack-protector-guard=tls", "-mstack-protector-guard-reg=tp", "-mstack-protector-guard-offset=0"}): true,
 }
 
 var linuxLLVMKconfigLDOptions = map[string]bool{
