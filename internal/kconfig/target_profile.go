@@ -74,12 +74,16 @@ func (p LinuxTargetProfile) ValidateTargetIdentity(arch, triple string) error {
 
 var architectureSelectorOwners = map[string]string{
 	"CONFIG_X86":    "x86_64",
-	"CONFIG_X86_32": "x86_64",
 	"CONFIG_X86_64": "x86_64",
 	"CONFIG_ARM64":  "aarch64",
 	"CONFIG_ARM":    "armv7",
 	"CONFIG_RISCV":  "riscv64",
 	"CONFIG_PPC":    "ppc64le",
+	"CONFIG_PPC64":  "ppc64le",
+	// linux.bzl does not expose a 32-bit x86 target profile. Keep the
+	// selector owned by its real architecture so every supported profile,
+	// including x86_64, rejects it.
+	"CONFIG_X86_32": "x86_32",
 }
 
 var requiredArchitectureSelectors = map[string][]string{

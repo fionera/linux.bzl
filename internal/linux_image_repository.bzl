@@ -96,9 +96,12 @@ _ARCH_CONFIGS = {
     "CONFIG_ARM": "armv7",
     "CONFIG_ARM64": "aarch64",
     "CONFIG_PPC": "ppc64le",
+    "CONFIG_PPC64": "ppc64le",
     "CONFIG_RISCV": "riscv64",
     "CONFIG_X86": "x86_64",
-    "CONFIG_X86_32": "x86_64",
+    # There is deliberately no 32-bit x86 target profile. This owner keeps
+    # CONFIG_X86_32=y contradictory to every supported platform.
+    "CONFIG_X86_32": "x86_32",
     "CONFIG_X86_64": "x86_64",
 }
 
@@ -666,19 +669,25 @@ def _set_config_value(values, key, value, description, line_number):
         fail("%s line %d: duplicate config key %s" % (description, line_number, key))
     values[key] = value
 
-def _validate_fragment_arch(profile, config, description):
+def _fragment_arch_error(profile, config, description):
     for symbol, owner in sorted(_ARCH_CONFIGS.items()):
         if config.get(symbol) == "y" and owner != profile:
-            fail(
+            return (
                 "%s sets %s=y for Linux target profile %r, but the target platform selects %r" %
-                (description, symbol, owner, profile),
+                (description, symbol, owner, profile)
             )
     for symbol in _REQUIRED_ARCH_CONFIGS[profile]:
         if symbol in config and config[symbol] != "y":
-            fail(
+            return (
                 "%s sets %s=%s, which contradicts Linux target profile %r" %
-                (description, symbol, config[symbol], profile),
+                (description, symbol, config[symbol], profile)
             )
+    return ""
+
+def _validate_fragment_arch(profile, config, description):
+    error = _fragment_arch_error(profile, config, description)
+    if error:
+        fail(error)
 
 def _validate_resolved_arch(profile, config, description):
     symbol = {
@@ -2022,6 +2031,7 @@ repositories_test_helpers = struct(
     generator_variable_args = _generator_variable_args,
     generated_header_config_index = _content_generated_header_config_index,
     generator_protocol = _REPOSITORY_GENERATOR_PROTOCOL,
+    fragment_arch_error = _fragment_arch_error,
     kernel_root_build = _kernel_root_build,
     target_profile_identity = lambda name: (
         _ARCHITECTURES[name].arch,

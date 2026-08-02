@@ -76,6 +76,20 @@ func TestPrepareTargetConfigRejectsContradiction(t *testing.T) {
 	}
 }
 
+func TestPrepareTargetConfigRejectsUnsupportedX86AndForeignPPC64Selectors(t *testing.T) {
+	profile, _ := LinuxTargetProfileByName("x86_64")
+	for _, symbol := range []string{"CONFIG_X86_32", "CONFIG_PPC64"} {
+		if _, err := profile.PrepareTargetConfig(map[string]string{symbol: "y"}); err == nil {
+			t.Errorf("PrepareTargetConfig(%s=y) unexpectedly succeeded for x86_64", symbol)
+		}
+	}
+
+	ppc, _ := LinuxTargetProfileByName("ppc64le")
+	if _, err := ppc.PrepareTargetConfig(map[string]string{"CONFIG_PPC64": "y"}); err != nil {
+		t.Fatalf("PrepareTargetConfig(CONFIG_PPC64=y) rejected ppc64le: %v", err)
+	}
+}
+
 func TestTargetIdentityIsAtomic(t *testing.T) {
 	profile, _ := LinuxTargetProfileByName("riscv64")
 	if err := profile.ValidateTargetIdentity("riscv", "riscv64-linux-gnu"); err != nil {

@@ -54,6 +54,31 @@ def _target_profiles_test_impl(ctx):
 
 target_profiles_test = unittest.make(_target_profiles_test_impl)
 
+def _fragment_arch_preflight_test_impl(ctx):
+    env = unittest.begin(ctx)
+    for symbol in ["CONFIG_X86_32", "CONFIG_PPC64"]:
+        error = repositories_test_helpers.fragment_arch_error(
+            "x86_64",
+            {symbol: "y"},
+            "test fragment",
+        )
+        asserts.true(env, symbol in error, "%s should be rejected, got %r" % (symbol, error))
+    asserts.equals(
+        env,
+        "",
+        repositories_test_helpers.fragment_arch_error(
+            "ppc64le",
+            {
+                "CONFIG_PPC": "y",
+                "CONFIG_PPC64": "y",
+            },
+            "test fragment",
+        ),
+    )
+    return unittest.end(env)
+
+fragment_arch_preflight_test = unittest.make(_fragment_arch_preflight_test_impl)
+
 def _graph_configs_args_test_impl(ctx):
     env = unittest.begin(ctx)
     asserts.equals(
