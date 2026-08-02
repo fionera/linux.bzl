@@ -1793,6 +1793,10 @@ func compactObjectActionFootprintForObject(object string, flags []string) compac
 		footprint.providedIncludes = []string{
 			"arch/arm64/kernel/vdso/vdso.so",
 		}
+	case "arch/arm/vdso/vdso.o":
+		footprint.providedIncludes = []string{
+			"arch/arm/vdso/vdso.so",
+		}
 	case "arch/arm64/kernel/vdso32-wrap.o":
 		footprint.providedIncludes = []string{
 			"arch/arm64/kernel/vdso32/vdso.so",
@@ -1828,6 +1832,7 @@ func compactObjectActionFootprintForObject(object string, flags []string) compac
 		)
 	}
 	if isMultiSourceImageObject(object) ||
+		object == "arch/arm/vdso/vdso.o" ||
 		object == "arch/arm64/kernel/vdso-wrap.o" ||
 		object == "arch/arm64/kernel/vdso32-wrap.o" ||
 		isArm64NvheObject(object) {
@@ -2392,6 +2397,7 @@ func quotedInclude(line string) (string, bool) {
 }
 
 var compactGroupedSpecialObjects = map[string]bool{
+	"arch/arm/vdso/vdso.o":                        true,
 	"arch/arm64/kernel/vdso-wrap.o":               true,
 	"arch/arm64/kernel/vdso32-wrap.o":             true,
 	"arch/x86/entry/vdso/vdso-image-64.o":         true,

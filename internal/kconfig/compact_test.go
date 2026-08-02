@@ -2278,6 +2278,9 @@ func TestCompactContentGraphGeneratedObjectActionFootprints(t *testing.T) {
 		})
 	}
 	for object, want := range map[string][]string{
+		"arch/arm/vdso/vdso.o": {
+			"arch/arm/vdso/vdso.so",
+		},
 		"arch/arm64/kernel/vdso-wrap.o": {
 			"arch/arm64/kernel/vdso/vdso.so",
 		},
@@ -2932,6 +2935,78 @@ obj-y := arch/arm64/kernel/vdso-wrap.o
 	_, changed := generate("changed")
 	if changed.ContentID == before.ContentID {
 		t.Fatalf("native vDSO producer source digest did not change content ID %q", before.ContentID)
+	}
+}
+
+func TestCompactContentGraphARMVDSOBindsExactGeneratedBinaryAndProducerInputs(t *testing.T) {
+	tree := mustParseString(t, "mainmenu \"ARM vDSO exact identity\"\n")
+	kb, err := ParseKbuild(strings.NewReader("obj-y := arch/arm/vdso/vdso.o\n"), "Makefile")
+	if err != nil {
+		t.Fatalf("parseKbuild() failed: %v", err)
+	}
+	sourceRoot := t.TempDir()
+	for path, content := range map[string]string{
+		"arch/arm/vdso/vdso.S":          ".incbin \"arch/arm/vdso/vdso.so\"\n",
+		"arch/arm/vdso/note.c":          "int note;\n",
+		"arch/arm/vdso/vgettimeofday.c": "#ifdef BUILD_VDSO32\nint vdso_time;\n#endif\n",
+		"arch/arm/vdso/vdso.lds.S":      "SECTIONS { .text : { *(.text*) } }\n",
+		"arch/arm/vdso/vdsomunge.c":     "int host_vdsomunge;\n",
+		"lib/vdso/gettimeofday.c":       "int generic_vdso_time;\n",
+	} {
+		mustWriteSource(t, sourceRoot, path, content)
+	}
+	writeCompactContentGraphForcedInputs(t, sourceRoot)
+	generate := func(name string) (*CompactMetadata, CompactObjectVariant) {
+		t.Helper()
+		metadata, err := compactMetadataBatchWithOptionsForTest(t, tree, kb, []NamedConfig{{Name: name}}, CompactMetadataOptions{
+			SourceRoot:            sourceRoot,
+			Srcarch:               "arm",
+			CompileEnvironmentABI: "arm-object-abi-v1",
+		})
+		if err != nil {
+			t.Fatalf("CompactMetadataBatchWithOptions(%s) failed: %v", name, err)
+		}
+		config := configByName(metadata, name)
+		return metadata, variantByTarget(metadata, objectTarget(metadata, config, "arch/arm/vdso/vdso.o"))
+	}
+
+	metadata, before := generate("before")
+	if len(metadata.GeneratedHeaderFamilies) != 1 ||
+		metadata.GeneratedHeaderFamilies[0].Name != compactGeneratedHeaderFamilyAll {
+		t.Fatalf("ARM vDSO generated-header families = %#v, want one all family", metadata.GeneratedHeaderFamilies)
+	}
+	family := metadata.GeneratedHeaderFamilies[0]
+	inputs, err := metadata.expandedSourceInputGroup(family.SourceInputGroup, "ARM generated headers")
+	if err != nil {
+		t.Fatalf("expand ARM generated-header inputs: %v", err)
+	}
+	paths := sourceInputPaths(inputs)
+	for _, want := range []string{
+		"arch/arm/vdso/note.c",
+		"arch/arm/vdso/vdso.lds.S",
+		"arch/arm/vdso/vdsomunge.c",
+		"arch/arm/vdso/vgettimeofday.c",
+		"lib/vdso/gettimeofday.c",
+	} {
+		if !slices.Contains(paths, want) {
+			t.Errorf("ARM generated-header inputs = %v, want %q", paths, want)
+		}
+	}
+	var environment CompactCompileEnvironment
+	for _, candidate := range metadata.CompileEnvironments {
+		if candidate.ID == before.CompileEnvironment {
+			environment = candidate
+			break
+		}
+	}
+	if want := []string{family.ID}; !reflect.DeepEqual(environment.GeneratedHeaderFamilies, want) {
+		t.Fatalf("ARM vDSO generated-header families = %v, want %v", environment.GeneratedHeaderFamilies, want)
+	}
+
+	mustWriteSource(t, sourceRoot, "lib/vdso/gettimeofday.c", "int generic_vdso_time_changed;\n")
+	_, changed := generate("changed")
+	if changed.ContentID == before.ContentID {
+		t.Fatalf("ARM vDSO producer source digest did not change content ID %q", before.ContentID)
 	}
 }
 

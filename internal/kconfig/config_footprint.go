@@ -101,6 +101,7 @@ type sourceScanProfile string
 const (
 	sourceScanKernel          sourceScanProfile = ""
 	sourceScanKernelModule    sourceScanProfile = "kernel-module"
+	sourceScanARMVDSO         sourceScanProfile = "arm-vdso"
 	sourceScanArm64VDSO       sourceScanProfile = "arm64-vdso"
 	sourceScanArm32CompatVDSO sourceScanProfile = "arm32-compat-vdso"
 )
@@ -1382,6 +1383,12 @@ func sourcePredefinedSymbols(srcarch string) map[string]bool {
 		symbols["__aarch64__"] = true
 		symbols["__arm__"] = false
 		symbols["__ILP32__"] = false
+	case "arm":
+		symbols["__x86_64__"] = false
+		symbols["__amd64__"] = false
+		symbols["__aarch64__"] = false
+		symbols["__arm__"] = true
+		symbols["__ILP32__"] = true
 	}
 	return symbols
 }
@@ -1391,6 +1398,14 @@ func sourceProfilePredefinedSymbols(profile sourceScanProfile) map[string]bool {
 	case sourceScanKernelModule:
 		return map[string]bool{
 			"MODULE": true,
+		}
+	case sourceScanARMVDSO:
+		return map[string]bool{
+			"__aarch64__":              false,
+			"__arm__":                  true,
+			"__ILP32__":                true,
+			"BUILD_VDSO32":             true,
+			"DISABLE_BRANCH_PROFILING": true,
 		}
 	case sourceScanArm64VDSO:
 		return map[string]bool{

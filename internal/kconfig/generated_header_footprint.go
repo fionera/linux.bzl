@@ -49,6 +49,7 @@ type compactGeneratedHeaderFamilyFootprint struct {
 type compactGeneratedHeaderSource struct {
 	path         string
 	includeRoots []string
+	profile      sourceScanProfile
 }
 
 func generatedHeaderOffsetsSources(sources ...compactGeneratedHeaderSource) []compactGeneratedHeaderSource {
@@ -298,7 +299,7 @@ func generatedHeaderFamilyFootprint(
 		if _, ok := scanner.absForTreePath(source.path); !ok {
 			continue
 		}
-		closure, err := scanner.closureForSourceConfig(source.path, source.includeRoots, config)
+		closure, err := scanner.closureForSourceConfigProfile(source.path, source.includeRoots, config, source.profile)
 		if err != nil {
 			return compactGeneratedHeaderFamilyFootprint{}, fmt.Errorf(
 				"scan generated-header family %s input %s: %w",
@@ -429,7 +430,19 @@ func generatedHeaderAllFootprint(
 			digestOnlyPaths = append(digestOnlyPaths, "arch/arm64/include/asm/cfi.h")
 		}
 	case "arm":
+		for _, path := range []string{
+			"arch/arm/vdso/note.c",
+			"arch/arm/vdso/vgettimeofday.c",
+			"arch/arm/vdso/vdso.lds.S",
+			"lib/vdso/gettimeofday.c",
+		} {
+			sourcePaths = append(sourcePaths, compactGeneratedHeaderSource{
+				path:    path,
+				profile: sourceScanARMVDSO,
+			})
+		}
 		digestOnlyPaths = append(digestOnlyPaths,
+			"arch/arm/vdso/vdsomunge.c",
 			"arch/arm/tools/syscall.tbl",
 		)
 	}
@@ -437,7 +450,7 @@ func generatedHeaderAllFootprint(
 		if _, ok := scanner.absForTreePath(source.path); !ok {
 			continue
 		}
-		closure, err := scanner.closureForSourceConfig(source.path, source.includeRoots, config)
+		closure, err := scanner.closureForSourceConfigProfile(source.path, source.includeRoots, config, source.profile)
 		if err != nil {
 			return compactGeneratedHeaderFamilyFootprint{}, fmt.Errorf(
 				"scan generated-header all-family input %s: %w",
