@@ -1148,6 +1148,37 @@ int kernel_deftree;
 	}
 }
 
+func TestConfigSourceScannerExcludesZstdAVX2ForArmKernel(t *testing.T) {
+	root := t.TempDir()
+	mustWriteSource(t, root, "lib/zstd/compress/zstd_compress.c", `
+#if defined(__AVX2__)
+#include <immintrin.h>
+#endif
+#ifdef __arm__
+#include "arm-kernel.h"
+#endif
+int zstd_compress;
+`)
+	mustWriteSource(t, root, "lib/zstd/compress/arm-kernel.h", "#define ZSTD_ARM_KERNEL 1\n")
+	scanner := newConfigSourceScanner(CompactMetadataOptions{
+		SourceRoot: root,
+		Srcarch:    "arm",
+	})
+	closure, err := scanner.closureForSource("lib/zstd/compress/zstd_compress.c", nil)
+	if err != nil {
+		t.Fatalf("closureForSource() followed inactive AVX2 branch on ARM: %v", err)
+	}
+	paths := sourceInputPaths(closure.sourceInputs)
+	if !slices.Contains(paths, "lib/zstd/compress/arm-kernel.h") {
+		t.Fatalf("ARM zstd inputs = %v, want target-selected ARM input", paths)
+	}
+	for _, path := range paths {
+		if filepath.Base(path) == "immintrin.h" {
+			t.Fatalf("ARM zstd inputs selected x86 intrinsic header: %v", paths)
+		}
+	}
+}
+
 func TestGeneratedHeaderFootprintArm64BindsDirectInputsAndConfig(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{
