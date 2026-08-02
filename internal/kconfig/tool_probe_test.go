@@ -213,3 +213,10 @@ func TestParseLinuxSourceProbeAcceptsKconfigCompilerVariables(t *testing.T) {
 		}
 	}
 }
+
+func TestKnownRELRProbeAcceptsPinnedToolPaths(t *testing.T) {
+	command := `env "CC=/pinned/bin/clang" "LD=/pinned/bin/ld.lld" "NM=llvm-nm" "OBJCOPY=llvm-objcopy" /src/scripts/tools-support-relr.sh`
+	if !isKnownRELRProbe(command) {
+		t.Fatalf("isKnownRELRProbe(%q) = false", command)
+	}
+}

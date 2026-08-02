@@ -295,14 +295,19 @@ func isKnownRELRProbe(command string) bool {
 	if len(fields) != 6 || fields[0] != "env" {
 		return false
 	}
-	want := []string{
-		"CC=clang",
-		"LD=ld.lld",
-		"NM=llvm-nm",
-		"OBJCOPY=llvm-objcopy",
+	want := []struct {
+		name string
+		tool string
+	}{
+		{name: "CC", tool: "clang"},
+		{name: "LD", tool: "ld.lld"},
+		{name: "NM", tool: "llvm-nm"},
+		{name: "OBJCOPY", tool: "llvm-objcopy"},
 	}
 	for i, expected := range want {
-		if strings.Trim(fields[i+1], `"'`) != expected {
+		assignment := strings.Trim(fields[i+1], `"'`)
+		name, value, ok := strings.Cut(assignment, "=")
+		if !ok || name != expected.name || linuxProbeToolName(value) != expected.tool {
 			return false
 		}
 	}
