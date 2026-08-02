@@ -544,13 +544,13 @@ linux_image = repository_rule(
         ),
         "probe_cc": attr.label(
             allow_single_file = True,
-            default = Label("@llvm//toolchain:stage2_linux_x86_64/bin/clang"),
-            doc = "Integrity-pinned clang source file used for repository-time probes.",
+            default = Label("@linux_bzl_probe_llvm//:clang.exe"),
+            doc = "Host-native, integrity-pinned clang used for repository-time probes.",
         ),
         "probe_ld": attr.label(
             allow_single_file = True,
-            default = Label("@llvm//toolchain:stage2_linux_x86_64/bin/ld.lld"),
-            doc = "Integrity-pinned ld.lld source file used for repository-time probes.",
+            default = Label("@linux_bzl_probe_llvm//:ld.lld.exe"),
+            doc = "Host-native, integrity-pinned ld.lld used for repository-time probes.",
         ),
         "source": attr.label(
             allow_single_file = True,
