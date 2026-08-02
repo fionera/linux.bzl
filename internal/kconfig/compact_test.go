@@ -1816,6 +1816,68 @@ func TestCompactContentGraphArm64GeneratedIncludeSelectsMonolithicFamily(t *test
 	}
 }
 
+func TestCompactContentGraphARMGeneratedSyscallIncludeSelectsMonolithicFamily(t *testing.T) {
+	tree := mustParseString(t, `
+config AEABI
+	bool
+`)
+	kb, err := ParseKbuild(strings.NewReader("obj-y += arch/arm/kernel/entry-common.o\n"), "Kbuild")
+	if err != nil {
+		t.Fatalf("ParseKbuild() failed: %v", err)
+	}
+	sourceRoot := t.TempDir()
+	mustWriteSource(t, sourceRoot, "arch/arm/kernel/entry-common.S", `
+#ifdef CONFIG_AEABI
+#include <calls-eabi.S>
+#else
+#include <calls-oabi.S>
+#endif
+`)
+	mustWriteSource(t, sourceRoot, "arch/arm/tools/syscall.tbl", "0 common restart_syscall sys_restart_syscall\n")
+	writeCompactContentGraphForcedInputs(t, sourceRoot)
+	metadata, err := tree.CompactMetadataBatchWithOptions(
+		[]NamedConfig{{Name: "arm", Flags: map[string]string{"CONFIG_AEABI": "y"}}},
+		CompactMetadataOptions{
+			SourceRoot:            sourceRoot,
+			Srcarch:               "arm",
+			CompileEnvironmentABI: "arm-object-abi-v1",
+		},
+		func(*ResolvedConfig) (CompactConfigGraph, error) {
+			return CompactConfigGraph{
+				Kbuild:                kb,
+				GeneratedHeadersLabel: "//headers:arm",
+			}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("CompactMetadataBatchWithOptions() failed: %v", err)
+	}
+	if len(metadata.GeneratedHeaderFamilies) != 1 ||
+		metadata.GeneratedHeaderFamilies[0].Name != compactGeneratedHeaderFamilyAll {
+		t.Fatalf("ARM generated header families = %#v, want one all family", metadata.GeneratedHeaderFamilies)
+	}
+	family := metadata.GeneratedHeaderFamilies[0]
+	inputs, err := metadata.expandedSourceInputGroup(family.SourceInputGroup, "ARM generated headers")
+	if err != nil {
+		t.Fatalf("expand ARM generated-header inputs: %v", err)
+	}
+	if got := sourceInputByPath(inputs, "arch/arm/tools/syscall.tbl").Path; got == "" {
+		t.Fatalf("ARM generated-header inputs = %v, want arch/arm/tools/syscall.tbl", inputs)
+	}
+	config := configByName(metadata, "arm")
+	variant := variantByTarget(metadata, objectTarget(metadata, config, "arch/arm/kernel/entry-common.o"))
+	var environment CompactCompileEnvironment
+	for _, candidate := range metadata.CompileEnvironments {
+		if candidate.ID == variant.CompileEnvironment {
+			environment = candidate
+			break
+		}
+	}
+	if want := []string{family.ID}; !reflect.DeepEqual(environment.GeneratedHeaderFamilies, want) {
+		t.Fatalf("ARM entry-common generated-header families = %v, want %v", environment.GeneratedHeaderFamilies, want)
+	}
+}
+
 func TestCompactMetadataBatchEmitsConfigGraphs(t *testing.T) {
 	tree := mustParseCompactFixture(t)
 	parseKbuild := func(name, content string) *KbuildFile {

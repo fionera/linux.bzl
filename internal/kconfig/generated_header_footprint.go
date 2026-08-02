@@ -428,6 +428,10 @@ func generatedHeaderAllFootprint(
 		if _, ok := scanner.absForTreePath("arch/arm64/include/asm/cfi.h"); ok {
 			digestOnlyPaths = append(digestOnlyPaths, "arch/arm64/include/asm/cfi.h")
 		}
+	case "arm":
+		digestOnlyPaths = append(digestOnlyPaths,
+			"arch/arm/tools/syscall.tbl",
+		)
 	}
 	for _, source := range sourcePaths {
 		if _, ok := scanner.absForTreePath(source.path); !ok {
@@ -573,6 +577,8 @@ func generatedHeaderFamilyNameForInclude(path string) (string, bool) {
 		return compactGeneratedHeaderFamilyRQOffsets, true
 	case "kvm-asm-offsets.h", "generated/kvm-asm-offsets.h":
 		return compactGeneratedHeaderFamilyKVMOffsets, true
+	case "calls-eabi.S", "calls-oabi.S":
+		return compactGeneratedHeaderFamilyAll, true
 	}
 	if strings.HasPrefix(path, "asm/") || strings.HasPrefix(path, "uapi/asm/") {
 		return compactGeneratedHeaderFamilyStatic, true

@@ -1444,7 +1444,8 @@ func generatedHeaderInclude(path string) bool {
 		return true
 	}
 	switch path {
-	case "kvm-asm-offsets.h", "linux/version.h", "linux/utsrelease.h":
+	case "calls-eabi.S", "calls-oabi.S",
+		"kvm-asm-offsets.h", "linux/version.h", "linux/utsrelease.h":
 		return true
 	default:
 		return false

@@ -1390,6 +1390,16 @@ func TestGeneratedHeaderFamilyClassifierUsesOwnedSpellings(t *testing.T) {
 			name:    compactGeneratedHeaderFamilyStatic,
 			precise: true,
 		},
+		{
+			path:    "calls-eabi.S",
+			name:    compactGeneratedHeaderFamilyAll,
+			precise: true,
+		},
+		{
+			path:    "calls-oabi.S",
+			name:    compactGeneratedHeaderFamilyAll,
+			precise: true,
+		},
 		{path: "linux/kernel.h"},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
